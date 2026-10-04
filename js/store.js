@@ -1,5 +1,5 @@
 'use strict';
-// ===== セーブデータと ゲームのルール =====
+// ===== セーブデータとゲームのルール =====
 
 const SAVE_KEY = 'manabi-quest-v1';
 
@@ -36,10 +36,21 @@ function load() {
     if (raw) {
       const d = JSON.parse(raw);
       const base = defaultState();
-      return { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
+      return migrate({ ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } });
     }
-  } catch (e) { /* こわれたデータは むし */ }
+  } catch (e) { /* 壊れたデータは無視 */ }
   return defaultState();
+}
+// 旧キャラIDを新キャラIDに置き換える
+function migrate(st) {
+  const chars = {};
+  for (const [id, o] of Object.entries(st.chars || {})) {
+    const nid = CHAR_BY_ID[id] ? id : OLD_CHAR_IDS[id];
+    if (nid) chars[nid] = o;
+  }
+  st.chars = chars;
+  if (st.partner && !CHAR_BY_ID[st.partner]) st.partner = OLD_CHAR_IDS[st.partner] || Object.keys(chars)[0] || null;
+  return st;
 }
 function save() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 容量オーバーなど */ }
@@ -79,11 +90,11 @@ function addXp(amount, events) {
   }
 }
 
-// ---------- なかま ----------
+// ---------- 仲間 ----------
 function charExpNeed(lv) { return 30 + lv * 15; }
 function charStage(lv) { return lv >= EVOLVE_LV[1] ? 2 : lv >= EVOLVE_LV[0] ? 1 : 0; }
 function charLevel(id) { return S.chars[id] ? S.chars[id].level : 1; }
-function charEmoji(id, lv) { return CHAR_BY_ID[id].forms[charStage(lv ?? charLevel(id))]; }
+function charIcon(id, lv) { return CHAR_BY_ID[id].forms[charStage(lv ?? charLevel(id))]; }
 function charName(id, lv) { return CHAR_BY_ID[id].names[charStage(lv ?? charLevel(id))]; }
 function charPower(id) {
   const c = CHAR_BY_ID[id];
@@ -103,16 +114,17 @@ function addCharExp(id, amount, events) {
   if (charStage(o.level) > charStage(from)) events.push({ type: 'evolve', id, fromLv: from, toLv: o.level });
 }
 
-// ---------- ステージ ----------
-const STAGES_PER_LOOP = WORLDS.length * 3;
+// ---------- ステージ（世界一周） ----------
+const STAGES_PER_LOOP = CITIES.length;
 function stageInfo(i) {
   const loop = Math.floor(i / STAGES_PER_LOOP);
   const k = i % STAGES_PER_LOOP;
-  const worldIdx = Math.floor(k / 3);
-  const world = WORLDS[worldIdx];
-  const enemy = world.enemies[k % 3];
+  const city = CITIES[k];
+  const region = REGION_BY_ID[city.region];
+  const sub = CITIES.filter(c => c.region === city.region).indexOf(city);
+  const enemy = { e: city.e, n: city.n, weak: SUBJECT_BY_ID[city.subject].el, boss: !!city.boss };
   const raw = (120 + i * 90 + i * i * 6) * (enemy.boss ? 1.6 : 1);
-  return { i, loop, worldIdx, world, sub: k % 3, enemy, boss: !!enemy.boss, hp: Math.round(raw / 10) * 10 };
+  return { i, loop, k, city, region, world: region, regionIdx: REGIONS.indexOf(region), sub, enemy, boss: enemy.boss, hp: Math.round(raw / 10) * 10 };
 }
 function currentStage() { return stageInfo(S.stage.i); }
 
@@ -122,7 +134,7 @@ function damagePerMin(subjectId, stage) {
   return { dmg: base * (weak ? 2 : 1), weak };
 }
 
-// 1ぷんずつ こうげきして、たおしたら つぎのステージへ
+// 1分ずつ攻撃して、倒したら次のステージへ
 function dealDamage(minutes, subjectId, events) {
   const start = S.stage.i, startDmg = S.stage.dmg;
   const firstWeak = damagePerMin(subjectId, stageInfo(start)).weak;
@@ -143,18 +155,18 @@ function dealDamage(minutes, subjectId, events) {
     let stars = 0, tickets = 0;
     for (const ci of clears) {
       const st = stageInfo(ci);
-      stars += st.boss ? 50 : 20;
-      if (st.boss) tickets++;
+      stars += st.boss ? 60 : 25;
+      if (st.boss) tickets += 2;
     }
     S.player.stars += stars;
     S.player.tickets += tickets;
     const newWorld = clears.some(ci => stageInfo(ci).boss) ? stageInfo(S.stage.i) : null;
-    events.push({ type: 'clear', clears, stars, tickets, newWorld });
+    events.push({ type: 'clear', clears, stars, tickets, newWorld, arrive: S.stage.i });
   }
   return { start, startDmg, firstWeak, total, clears, endStage: S.stage.i, endDmg: S.stage.dmg };
 }
 
-// ---------- れんぞく きろく ----------
+// ---------- 連続記録 ----------
 function currentStreak() {
   const t = today();
   if (S.streak.last === t || S.streak.last === dayOffset(t, -1)) return S.streak.count;
@@ -172,7 +184,7 @@ function touchStreak(events) {
   events.push({ type: 'login', streak: S.streak.count, stars, tickets });
 }
 
-// ---------- べんきょう おわり ----------
+// ---------- 勉強終了 ----------
 function finishSession(subject, minutes, goal, goalMet) {
   const events = [];
   const p = S.player;
@@ -259,7 +271,7 @@ function missionList() {
     return { ...m, cur, done: cur >= m.max, claimed: S.daily.claimed.includes(m.id) };
   });
   const allDone = list.every(m => m.claimed);
-  list.push({ id: 'all', label: 'ミッションを ぜんぶ クリア！', reward: ALL_MISSION_BONUS,
+  list.push({ id: 'all', label: 'ミッションを全てクリア！', reward: ALL_MISSION_BONUS,
     cur: list.filter(m => m.claimed).length, max: MISSIONS.length, done: allDone, claimed: S.daily.claimed.includes('all'), bonus: true });
   return list;
 }
@@ -295,10 +307,9 @@ function togglePause() {
 }
 function cancelActive() { S.active = null; save(); }
 
-// ---------- ひょうじ ----------
-function funpun(n) { return [2, 5, 7, 9].includes(n % 10) ? 'ふん' : 'ぷん'; }
+// ---------- 表示 ----------
 function fmtMin(m) {
-  if (m < 60) return m + funpun(m);
+  if (m < 60) return m + '分';
   const h = Math.floor(m / 60), r = m % 60;
-  return h + 'じかん' + (r ? r + funpun(r) : '');
+  return h + '時間' + (r ? r + '分' : '');
 }

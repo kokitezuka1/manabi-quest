@@ -1,11 +1,11 @@
 'use strict';
-// ===== がめん =====
+// ===== 画面 =====
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = (a, b) => Math.max(0, Math.min(100, (a / b) * 100)) + '%';
-const APP_TITLE = 'まなびクエスト';
+const APP_TITLE = '学びクエスト';
 
 let current = { name: 'home', params: {} };
 let timerHandle = null, wakeLock = null;
@@ -30,13 +30,16 @@ function render() {
   SCREENS[current.name](el, current.params);
 }
 
-// ---------- ぶひん ----------
+// ---------- 部品 ----------
+function icon(name, cls = '') {
+  return `<svg class="gi ${cls}" viewBox="0 0 512 512" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`;
+}
 function avatar(id, { size = 72, lv } = {}) {
   const c = CHAR_BY_ID[id];
   const level = lv ?? charLevel(id);
   const st = charStage(level);
   return `<div class="avatar st${st} r${c.r}" style="--el:${ELEMENTS[c.el].color};--sz:${size}px">
-    <span class="emo">${charEmoji(id, level)}</span>${st >= 2 ? '<span class="crown">👑</span>' : ''}</div>`;
+    ${icon(charIcon(id, level))}${st >= 2 ? '<span class="crown">♛</span>' : ''}</div>`;
 }
 function rarityTag(r) { return `<span class="rarity r${r}">${RARITY[r].stars}</span>`; }
 function elTag(el) { const e = ELEMENTS[el]; return `<span class="eltag" style="background:${e.color}">${e.icon}${e.name}</span>`; }
@@ -51,11 +54,11 @@ function renderTopbar() {
       <div class="tb-info"><div class="tb-name">${esc(p.name)} <span class="lv">Lv.${p.level}</span></div>
       <div class="bar xp"><i style="width:${pct(p.xp, xpNeed(p.level))}"></i></div></div></button>
     <div class="tb-cur">
-      <span class="pill" title="ほし">⭐<b>${p.stars}</b></span>
+      <span class="pill" title="スター">⭐<b>${p.stars}</b></span>
       <span class="pill" title="ガチャチケット">🎫<b>${p.tickets}</b></span>
-      <span class="pill fire" title="れんぞく">🔥<b>${currentStreak()}</b></span>
+      <span class="pill fire" title="連続日数">🔥<b>${currentStreak()}</b></span>
     </div>
-    <button class="icon-btn" id="gear" aria-label="せってい">⚙️</button>
+    <button class="icon-btn" id="gear" aria-label="設定">${icon('cog')}</button>
   </div>`;
   $('#gear').onclick = () => { Sound.tap(); openSettings(); };
   $('#tb-me').onclick = () => { Sound.tap(); go('zukan'); };
@@ -65,15 +68,15 @@ function renderNav() {
   const nav = $('#nav');
   if (!S.player || document.body.classList.contains('fullmode')) { nav.innerHTML = ''; return; }
   const items = [
-    ['home', '🏠', 'ホーム', claimableCount()],
-    ['adventure', '🗺️', 'ぼうけん', 0],
-    ['gacha', '🎁', 'ガチャ', S.player.tickets > 0 || S.player.stars >= GACHA.cost1 ? '!' : 0],
-    ['zukan', '📚', 'なかま', 0],
-    ['records', '📅', 'きろく', 0],
+    ['home', 'castle', 'ホーム', claimableCount()],
+    ['adventure', 'treasure-map', '冒険', 0],
+    ['gacha', 'open-treasure-chest', 'ガチャ', S.player.tickets > 0 || S.player.stars >= GACHA.cost1 ? '!' : 0],
+    ['zukan', 'battle-gear', '仲間', 0],
+    ['records', 'scroll-unfurled', '記録', 0],
   ];
   nav.innerHTML = items.map(([id, ic, label, badge]) =>
     `<button class="nav-btn ${current.name === id ? 'on' : ''}" data-go="${id}">
-      <span class="nav-ic">${ic}</span><span>${label}</span>${badge ? `<i class="badge">${badge}</i>` : ''}</button>`).join('');
+      <span class="nav-ic">${icon(ic)}</span><span>${label}</span>${badge ? `<i class="badge">${badge}</i>` : ''}</button>`).join('');
   $$('.nav-btn', nav).forEach(b => b.onclick = () => { Sound.tap(); go(b.dataset.go); });
 }
 
@@ -104,16 +107,16 @@ async function runEvents(events) {
   for (const ev of events) {
     if (ev.type === 'login') {
       Sound.coin();
-      await modal(`<div class="m-emo">🔥</div>
-        <h2>${ev.streak >= 2 ? `れんぞく ${ev.streak}にちめ！` : 'きょうも がんばったね！'}</h2>
-        <p>${ev.streak >= 2 ? 'まいにち つづけて えらい！' : 'まいにち つづけると ボーナスが ふえるよ'}</p>
+      await modal(`<div class="m-emo fire">${icon('flame')}</div>
+        <h2>${ev.streak >= 2 ? `連続${ev.streak}日目！` : '今日も勉強おつかれさま！'}</h2>
+        <p>${ev.streak >= 2 ? '毎日続けていてえらい！' : '毎日続けるとボーナスが増えていくぞ'}</p>
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
-        <button class="btn gold wide" data-v="ok">うけとる</button>`);
+        <button class="btn gold wide" data-v="ok">受け取る</button>`);
     } else if (ev.type === 'levelup') {
       Sound.levelup(); FX.confetti(140);
       await modal(`<div class="lvup">LEVEL UP!</div>
         <div class="lv-big">Lv.${ev.from} → <b>Lv.${ev.to}</b></div>
-        ${ev.newTitle ? `<div class="new-title">しょうごう<br>「${ev.newTitle}」を ゲット！</div>` : ''}
+        ${ev.newTitle ? `<div class="new-title">称号<br>「${ev.newTitle}」を獲得！</div>` : ''}
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
         <button class="btn gold wide" data-v="ok">やったー！</button>`, { cls: 'shine' });
     } else if (ev.type === 'charlv') {
@@ -121,46 +124,48 @@ async function runEvents(events) {
       const showLv = evolving ? ev.from : ev.to;
       Sound.levelup();
       await modal(`<div class="m-av bounce">${avatar(ev.id, { size: 110, lv: showLv })}</div>
-        <h2>${charName(ev.id, showLv)} が レベルアップ！</h2>
+        <h2>${charName(ev.id, showLv)}がレベルアップ！</h2>
         <div class="lv-big">Lv.${ev.from} → <b>Lv.${ev.to}</b></div>
-        <p>つよさ が あがった！ ⚔️ ${charPower(ev.id)}</p>
+        <p>強さが上がった！ ⚔️ ${charPower(ev.id)}</p>
         <button class="btn gold wide" data-v="ok">OK</button>`);
     } else if (ev.type === 'evolve') {
-      const m = openModal(`<p class="evo-msg" id="evo-msg">おや…？ ${charName(ev.id, ev.fromLv)} の ようすが…！</p>
+      const m = openModal(`<p class="evo-msg" id="evo-msg">おや…？ ${charName(ev.id, ev.fromLv)}の様子が…！</p>
         <div class="evo-box"><div id="evo-av" class="evo-flash">${avatar(ev.id, { size: 130, lv: ev.fromLv })}</div></div>
         <button class="btn gold wide hidden" data-v="ok" id="evo-ok">すごい！</button>`, { cls: 'evo' });
       Sound.evolve();
       await sleep(1900);
       $('#evo-av', m.el).className = 'pop';
       $('#evo-av', m.el).innerHTML = avatar(ev.id, { size: 150, lv: ev.toLv });
-      $('#evo-msg', m.el).innerHTML = `<b>${charName(ev.id, ev.toLv)}</b> に しんかした！`;
+      $('#evo-msg', m.el).innerHTML = `<b>${charName(ev.id, ev.toLv)}</b>に進化した！`;
       $('#evo-ok', m.el).classList.remove('hidden');
       FX.confetti(160); FX.burstAt($('#evo-av', m.el), 60, true);
       await m.done;
     } else if (ev.type === 'clear') {
       Sound.win(); FX.confetti(100);
       const nw = ev.newWorld;
-      await modal(`<div class="m-emo">🏆</div><h2>ステージ クリア！</h2>
-        <div class="defeated">${ev.clears.map(i => { const s = stageInfo(i); return `<span>${s.enemy.e}<small>${s.enemy.n}</small></span>`; }).join('')}</div>
-        <p>を たおした！</p>
+      await modal(`<div class="m-emo gold">${icon('trophy')}</div><h2>ステージクリア！</h2>
+        <div class="defeated">${ev.clears.map(i => { const s = stageInfo(i); return `<span>${icon(s.enemy.e)}<small>${s.enemy.n}</small></span>`; }).join('')}</div>
+        <p>を倒した！</p>
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
-        ${nw ? `<div class="new-world" style="--b1:${nw.world.bg[0]};--b2:${nw.world.bg[1]}">🎊 あたらしい せかいが ひらいた！<br>
-          <b>${nw.world.icon} ${nw.world.name}</b>${nw.loop ? `<br><small>でんせつモード ループ${nw.loop + 1}</small>` : ''}</div>` : ''}
-        <button class="btn gold wide" data-v="ok">つぎへ</button>`, { cls: 'shine' });
+        ${nw ? `<div class="new-world" style="--b1:${nw.region.bg[0]};--b2:${nw.region.bg[1]}">✈️ 新しい地域へ出発！<br>
+          <b>${nw.region.flag} ${nw.region.name}</b>${nw.loop ? `<br><small>伝説モード ループ${nw.loop + 1}</small>` : ''}</div>` : ''}
+        <button class="btn gold wide" data-v="ok">次の街へ ✈️</button>`, { cls: 'shine' });
+      Sound.levelup();
+      await cityModal(ev.arrive, { arrive: true });
     }
   }
   renderTopbar(); renderNav();
 }
 
-// ---------- はじめて ----------
+// ---------- 初回 ----------
 SCREENS.onboard = (el, params) => {
   if (!params.step || params.step === 1) {
     el.innerHTML = `<div class="onboard">
-      <div class="logo"><span class="logo-emo">📚⚔️✨</span><h1>まなび<br>クエスト</h1></div>
-      <p class="lead">べんきょうした じかんで<br>なかまを そだてて ボスを たおそう！</p>
-      <div class="card"><label class="lbl">きみの なまえは？</label>
-      <input id="name" class="input" maxlength="10" placeholder="なまえ" autocomplete="off"></div>
-      <button class="btn big gold" id="next">つぎへ ▶</button></div>`;
+      <div class="logo"><span class="logo-emo">${icon('winged-sword')}</span><h1>学び<br>クエスト</h1></div>
+      <p class="lead">勉強した時間で仲間を育て、<br>ボスを倒して世界を救え！</p>
+      <div class="card"><label class="lbl">プレイヤー名</label>
+      <input id="name" class="input" maxlength="10" placeholder="名前を入力" autocomplete="off"></div>
+      <button class="btn big gold" id="next">次へ ▶</button></div>`;
     const inp = $('#name');
     $('#next').onclick = () => {
       const name = inp.value.trim();
@@ -172,12 +177,12 @@ SCREENS.onboard = (el, params) => {
     return;
   }
   el.innerHTML = `<div class="onboard">
-    <h2 class="center">${esc(params.name)}さん、<br>さいしょの なかまを えらんでね！</h2>
+    <h2 class="center">${esc(params.name)}さん、<br>最初の仲間を選ぼう！</h2>
     <div class="starters">${STARTERS.map(id => {
       const c = CHAR_BY_ID[id], sub = SUBJECT_BY_EL[c.el];
       return `<button class="starter" data-id="${id}" style="--c:${ELEMENTS[c.el].color}">
         ${avatar(id, { size: 84, lv: 1 })}<b>${c.names[0]}</b>${elTag(c.el)}
-        <small>${sub.icon}${sub.name} で<br>よく そだつ</small></button>`;
+        <small>${sub.icon}${sub.name}で<br>よく育つ</small></button>`;
     }).join('')}</div></div>`;
   $$('.starter', el).forEach(b => b.onclick = async () => {
     const id = b.dataset.id;
@@ -185,9 +190,9 @@ SCREENS.onboard = (el, params) => {
     startGame(params.name, id);
     Sound.levelup(); FX.confetti(150);
     await modal(`<div class="m-av bounce">${avatar(id, { size: 120 })}</div>
-      <h2>${charName(id)} が なかまに なった！</h2>
-      <p>はじめての プレゼント</p><div class="rw-big">🎫 ガチャチケット ×1</div>
-      <button class="btn gold wide" data-v="ok">ぼうけんに しゅっぱつ！</button>`, { cls: 'shine' });
+      <h2>${charName(id)}が仲間になった！</h2>
+      <p>冒険開始ボーナス</p><div class="rw-big">🎫 ガチャチケット ×1</div>
+      <button class="btn gold wide" data-v="ok">冒険に出発！</button>`, { cls: 'shine' });
     go('home');
   });
 };
@@ -197,16 +202,17 @@ function sceneHtml(st) {
   const left = st.hp - (st.i === S.stage.i ? S.stage.dmg : 0);
   const ws = SUBJECT_BY_EL[st.enemy.weak];
   return `<div class="scene" style="--b1:${st.world.bg[0]};--b2:${st.world.bg[1]}">
-    <div class="scene-head">${st.world.icon} ${st.world.name} <b>${st.sub + 1}/3</b>${st.loop ? ` <span class="loop">ループ${st.loop + 1}</span>` : ''}</div>
+    <div class="scene-head"><div class="place"><small>${st.region.flag} ${st.region.name} ${st.sub + 1}/6${st.loop ? ` <span class="loop">ループ${st.loop + 1}</span>` : ''}</small>
+      <b>${st.city.name}</b></div><button class="trivia-btn" id="trivia">💡 豆知識</button></div>
     <div class="ground"></div>
     <div class="ally bob">${avatar(S.partner, { size: 86 })}</div>
     <div class="vs">VS</div>
     <div class="foe ${st.boss ? 'boss' : ''}" id="foe">
       <div class="foe-name">${st.boss ? '👑 ' : ''}${st.enemy.n}</div>
-      <div class="foe-emo" id="foe-emo">${st.enemy.e}</div>
+      <div class="foe-emo" id="foe-emo">${icon(st.enemy.e)}</div>
       <div class="hp"><i id="foe-hp" style="width:${pct(left, st.hp)}"></i><span id="foe-hptext">${left} / ${st.hp}</span></div>
     </div>
-    <div class="weak">よわてん：<b style="color:${ws.color}">${ws.icon} ${ws.name}</b></div>
+    <div class="weak">弱点：<b style="color:${ws.color}">${ws.icon} ${ws.name}</b></div>
   </div>`;
 }
 
@@ -214,7 +220,7 @@ function missionsHtml() {
   return missionList().map(m => {
     const rw = m.reward.tickets ? `🎫×${m.reward.tickets}` : `⭐×${m.reward.stars}`;
     const action = m.claimed ? '<span class="claimed">✅</span>'
-      : m.done ? `<button class="btn mini gold wiggle" data-claim="${m.id}">うけとる</button>`
+      : m.done ? `<button class="btn mini gold wiggle" data-claim="${m.id}">受け取る</button>`
       : `<span class="rw">${rw}</span>`;
     return `<div class="mission ${m.done ? 'done' : ''} ${m.bonus ? 'bonus' : ''}">
       <div class="m-text">${m.label}<div class="bar"><i style="width:${pct(m.cur, m.max)}"></i></div></div>${action}</div>`;
@@ -226,15 +232,16 @@ SCREENS.home = el => {
   const t = todayStats();
   const showGachaHint = S.gacha.total === 0 && S.player.tickets > 0;
   el.innerHTML = `${sceneHtml(st)}
-    <button class="btn big gold pulse" id="start">📚 べんきょう スタート！</button>
-    ${showGachaHint ? `<button class="card hint-card" id="ghint">🎫 ガチャチケットを もっているよ！<br><b>ガチャで あたらしい なかまを ゲットしよう ▶</b></button>` : ''}
+    <button class="btn big gold pulse" id="start">${icon('crossed-swords', 'btn-ic')} 勉強スタート</button>
+    ${showGachaHint ? `<button class="card hint-card" id="ghint">🎫 ガチャチケットを持っています！<br><b>ガチャで新しい仲間をゲットしよう ▶</b></button>` : ''}
     <div class="card">
-      <h3>🕒 きょうの べんきょう <span class="today-min">${fmtMin(t.minutes)}</span></h3>
+      <h3>🕒 今日の勉強 <span class="today-min">${fmtMin(t.minutes)}</span></h3>
       <div class="today-bar">${t.minutes ? t.bySubject.filter(x => x.min).map(x =>
-        `<i style="flex:${x.min};background:${x.sub.color}" title="${x.sub.name}">${x.sub.icon}</i>`).join('') : '<span class="muted">まだ だよ。いっしょに がんばろう！</span>'}</div>
+        `<i style="flex:${x.min};background:${x.sub.color}" title="${x.sub.name}">${x.sub.icon}</i>`).join('') : '<span class="muted">まだ記録がありません。さっそく始めよう！</span>'}</div>
     </div>
-    <div class="card"><h3>🎯 きょうの ミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
+    <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
+  $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if (showGachaHint) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
@@ -248,26 +255,27 @@ SCREENS.home = el => {
   };
 };
 
-// ---------- じゅんび ----------
-SCREENS.setup = el => {
-  let subj = S.settings.lastSubject || SUBJECTS[0].id;
+// ---------- 準備 ----------
+SCREENS.setup = (el, params) => {
+  let subj = params.subject || S.settings.lastSubject || SUBJECTS[0].id;
   let goal = S.settings.lastGoal || 15;
   const st = currentStage();
   const pel = CHAR_BY_ID[S.partner].el;
   const draw = () => {
     const { dmg, weak } = damagePerMin(subj, st);
     el.innerHTML = `<div class="setup">
-      <button class="link back" id="back">← もどる</button>
-      <h2>なにを べんきょうする？</h2>
+      <button class="link back" id="back">← 戻る</button>
+      <h2>何を勉強する？</h2>
+      <p class="muted small">${st.region.flag} ${st.city.name}の守護者「${st.enemy.n}」は <b style="color:${SUBJECT_BY_ID[st.city.subject].color}">${SUBJECT_BY_ID[st.city.subject].name}</b> が弱点</p>
       <div class="subj-grid">${SUBJECTS.map(s => `<button class="subj ${s.id === subj ? 'sel' : ''}" data-s="${s.id}" style="--c:${s.color}">
         <span class="si">${s.icon}</span><span class="sn">${s.name}</span>
-        ${s.el === st.enemy.weak ? '<em class="tag hot">ボスに ×2</em>' : ''}
-        ${s.el === pel ? '<em class="tag">なかまが そだつ</em>' : ''}</button>`).join('')}</div>
-      <p class="muted small">「そのほか」は しゅくだい・どくしょ・プリント など</p>
-      <h2>なんぷん がんばる？</h2>
-      <div class="goal-row">${GOAL_OPTIONS.map(g => `<button class="goal ${g === goal ? 'sel' : ''}" data-g="${g}">${g}<small>${funpun(g)}</small></button>`).join('')}</div>
+        ${s.el === st.enemy.weak ? '<em class="tag hot">この街の弱点 ×2</em>' : ''}
+        ${s.el === pel ? '<em class="tag">仲間が育つ</em>' : ''}</button>`).join('')}</div>
+      <p class="muted small">「その他」は宿題・読書・プリント・ドリルなど</p>
+      <h2>何分がんばる？</h2>
+      <div class="goal-row">${GOAL_OPTIONS.map(g => `<button class="goal ${g === goal ? 'sel' : ''}" data-g="${g}">${g}<small>分</small></button>`).join('')}</div>
       <div class="card preview">
-        <div>たっせい したら もらえる！</div>
+        <div>目標を達成すると獲得できる報酬</div>
         <div class="pv-row"><span>⭐ <b>${goal + 5}</b></span><span>🧠 <b>${Math.round(goal * 12)}</b></span><span>⚔️ <b>${dmg * goal}</b>${weak ? '<em class="tag hot">×2</em>' : ''}</span></div>
       </div>
       <button class="btn big gold pulse" id="go">▶ スタート！</button></div>`;
@@ -287,7 +295,7 @@ function mmss(sec) {
   return (h ? h + ':' + p(m) : p(m)) + ':' + p(s);
 }
 async function requestWake() {
-  try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* たいおうしていない */ }
+  try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* 非対応 */ }
 }
 function leaveTimer() {
   if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
@@ -307,20 +315,20 @@ SCREENS.timer = el => {
   const st = currentStage();
   const { dmg: dpm } = damagePerMin(a.subject, st);
   el.innerHTML = `<div class="timer" style="--c:${sub.color}">
-    <div class="t-head">${subjChip(a.subject)}<span class="t-goal">🎯 もくひょう ${fmtMin(a.goal)}</span></div>
+    <div class="t-head">${subjChip(a.subject)}<span class="t-goal">🎯 目標 ${fmtMin(a.goal)}</span></div>
     <div class="ring-wrap" id="ringwrap">
       <svg viewBox="0 0 220 220" class="ring"><circle cx="110" cy="110" r="96" class="ring-bg"/>
         <circle cx="110" cy="110" r="96" class="ring-fg" id="ringfg" stroke-dasharray="${RING_LEN}" stroke-dashoffset="${RING_LEN}"/></svg>
       <div class="ring-text"><div id="ttime" class="ttime">00:00</div><div id="tsub" class="t-subtext"></div></div>
     </div>
-    <div class="t-buddy"><div class="bubble" id="bubble">いっしょに がんばろう！</div><div class="bob">${avatar(S.partner, { size: 92 })}</div></div>
+    <div class="t-buddy"><div class="bubble" id="bubble">一緒にがんばろう！</div><div class="bob">${avatar(S.partner, { size: 92 })}</div></div>
     <div class="t-live">
       <div class="live"><span>⭐</span><b id="lstars">0</b></div>
       <div class="live"><span>🧠</span><b id="lxp">0</b></div>
       <div class="live"><span>⚔️</span><b id="ldmg">0</b></div>
     </div>
-    <div class="t-btns"><button class="btn ghost" id="pause"></button><button class="btn gold" id="fin">🏁 おわる！</button></div>
-    <button class="link small" id="cancel">やめる（きろく しない）</button>
+    <div class="t-btns"><button class="btn ghost" id="pause"></button><button class="btn gold" id="fin">🏁 終わる</button></div>
+    <button class="link small" id="cancel">やめる（記録しない）</button>
   </div>`;
 
   let lastMin = -1, busy = false;
@@ -333,11 +341,11 @@ SCREENS.timer = el => {
     const met = sec >= goalSec;
     const paused = !!a.pausedAt;
     $('#ttime').textContent = mmss(sec);
-    $('#tsub').textContent = paused ? '☕ きゅうけいちゅう' : met ? `🎉 たっせい！ ボーナスタイム` : `のこり ${mmss(goalSec - sec)}`;
+    $('#tsub').textContent = paused ? '☕ 休憩中' : met ? '🎉 達成！ボーナスタイム' : `残り ${mmss(goalSec - sec)}`;
     ring.setAttribute('stroke-dashoffset', RING_LEN * (1 - Math.min(1, sec / goalSec)));
     $('#ringwrap').classList.toggle('met', met);
     $('#ringwrap').classList.toggle('paused', paused);
-    $('#pause').textContent = paused ? '▶ さいかい' : '⏸ きゅうけい';
+    $('#pause').textContent = paused ? '▶ 再開' : '⏸ 休憩';
     document.title = `${mmss(sec)} ${sub.name} | ${APP_TITLE}`;
 
     if (min !== lastMin) {
@@ -357,23 +365,23 @@ SCREENS.timer = el => {
       a.goalNotified = true; save();
       busy = true;
       Sound.chime(); FX.confetti(100);
-      modal(`<div class="m-emo">🎉</div><h2>もくひょう たっせい！</h2>
-        <p>すごい！ ${fmtMin(a.goal)} がんばったね！<br>つづけると もっと ⭐ が もらえるよ</p>
-        <div class="m-btns"><button class="btn ghost" data-v="fin">おわる</button><button class="btn gold" data-v="cont">つづける！</button></div>`)
+      modal(`<div class="m-emo gold">${icon('laurel-crown')}</div><h2>目標達成！</h2>
+        <p>${fmtMin(a.goal)}やり切った！<br>続けるとさらに⭐が増えるぞ</p>
+        <div class="m-btns"><button class="btn ghost" data-v="fin">終わる</button><button class="btn gold" data-v="cont">続ける！</button></div>`)
         .then(v => { busy = false; if (v === 'fin') finishFlow(true); });
     } else if (min >= MAX_SESSION_MIN && !paused) {
       togglePause();
       busy = true;
-      modal(`<div class="m-emo">🏅</div><h2>${MAX_SESSION_MIN}ぷん がんばったよ！</h2><p>すごすぎる！ からだを やすめよう。</p>
-        <button class="btn gold wide" data-v="ok">おわりにする</button>`).then(() => { busy = false; finishFlow(true); });
+      modal(`<div class="m-emo gold">${icon('trophy')}</div><h2>${MAX_SESSION_MIN}分も集中した！</h2><p>すごい集中力！ 少し体を休めよう。</p>
+        <button class="btn gold wide" data-v="ok">終わりにする</button>`).then(() => { busy = false; finishFlow(true); });
     }
   };
   $('#pause').onclick = () => { Sound.tap(); togglePause(); update(); };
   $('#fin').onclick = () => { Sound.tap(); finishFlow(false); };
   $('#cancel').onclick = async () => {
     Sound.tap();
-    const v = await modal(`<div class="m-emo">🤔</div><h2>ほんとうに やめる？</h2><p>きろくは のこらないよ</p>
-      <div class="m-btns"><button class="btn ghost" data-v="quit">やめる</button><button class="btn gold" data-v="cont">つづける</button></div>`);
+    const v = await modal(`<div class="m-emo">${icon('cancel')}</div><h2>本当にやめる？</h2><p>今回の記録は残りません</p>
+      <div class="m-btns"><button class="btn ghost" data-v="quit">やめる</button><button class="btn gold" data-v="cont">続ける</button></div>`);
     if (v === 'quit') { cancelActive(); go('home'); }
   };
   update();
@@ -387,16 +395,16 @@ async function finishFlow(skipConfirm) {
   const sec = activeElapsedSec();
   const min = Math.min(Math.floor(sec / 60), MAX_SESSION_MIN);
   if (min < 1) {
-    const v = await modal(`<div class="m-emo">⏱️</div><h2>まだ 1ぷん たってないよ</h2><p>1ぷん いじょう がんばると きろく できるよ！</p>
-      <div class="m-btns"><button class="btn ghost" data-v="quit">やめる</button><button class="btn gold" data-v="cont">つづける</button></div>`);
+    const v = await modal(`<div class="m-emo">${icon('hourglass')}</div><h2>まだ1分たっていません</h2><p>1分以上勉強すると記録できます</p>
+      <div class="m-btns"><button class="btn ghost" data-v="quit">やめる</button><button class="btn gold" data-v="cont">続ける</button></div>`);
     if (v === 'quit') { cancelActive(); go('home'); }
     return;
   }
   if (!skipConfirm) {
     const met = sec >= a.goal * 60;
-    const v = await modal(`<div class="m-emo">🏁</div><h2>${fmtMin(min)} がんばったね！</h2>
-      <p>${met ? 'おわりに する？' : `もくひょうまで あと ${mmss(a.goal * 60 - sec)}！<br>たっせい すると ボーナスが もらえるよ`}</p>
-      <div class="m-btns"><button class="btn ghost" data-v="cont">まだ つづける</button><button class="btn gold" data-v="fin">おわる！</button></div>`);
+    const v = await modal(`<div class="m-emo">${icon('checkered-flag')}</div><h2>${fmtMin(min)}がんばった！</h2>
+      <p>${met ? '終わりにする？' : `目標まであと ${mmss(a.goal * 60 - sec)}！<br>達成するとボーナスがもらえるぞ`}</p>
+      <div class="m-btns"><button class="btn ghost" data-v="cont">まだ続ける</button><button class="btn gold" data-v="fin">終わる</button></div>`);
     if (v !== 'fin' || !S.active) return;
   }
   const res = finishSession(a.subject, min, a.goal, activeElapsedSecAt(a) >= a.goal * 60);
@@ -407,7 +415,7 @@ function activeElapsedSecAt(a) {
   return Math.floor((now - a.startedAt - a.pausedTotal) / 1000);
 }
 
-// ---------- けっか ----------
+// ---------- 結果 ----------
 async function animBar(bar, label, from, to, need, maxLv) {
   bar.style.transition = 'none';
   bar.style.width = pct(from.v, need(from.lv));
@@ -436,27 +444,27 @@ SCREENS.result = async (el, r) => {
   const cleared = b.clears.length > 0;
   const p = S.player, pc = S.chars[r.partner];
   el.innerHTML = `<div class="result">
-    <div class="res-title">やったね！</div>
-    <div class="res-sub">${subjChip(r.subject)} を <b class="big-num" id="rmin">0</b> ${funpun(r.minutes)} がんばった！</div>
-    ${r.goalMet ? '<div class="goal-badge">🎯 もくひょう たっせい ボーナス！</div>' : ''}
+    <div class="res-title">ナイスファイト！</div>
+    <div class="res-sub">${subjChip(r.subject)}を <b class="big-num" id="rmin">0</b> 分がんばった！</div>
+    ${r.goalMet ? '<div class="goal-badge">🎯 目標達成ボーナス！</div>' : ''}
     <div class="card rewards">
-      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">ほし</span><b>+<span id="rstars">0</span></b></div>
-      <div class="rw-row" id="row2"><span class="rw-ic">🧠</span><span class="rw-l">けいけんち <span class="lvl" id="plv">Lv.${r.xpBefore.level}</span></span><b>+<span id="rxp">0</span></b>
+      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">スター</span><b>+<span id="rstars">0</span></b></div>
+      <div class="rw-row" id="row2"><span class="rw-ic">🧠</span><span class="rw-l">経験値 <span class="lvl" id="plv">Lv.${r.xpBefore.level}</span></span><b>+<span id="rxp">0</span></b>
         <div class="bar xp"><i id="pbar"></i></div></div>
-      <div class="rw-row" id="row3"><span class="rw-ic">${charEmoji(r.partner, r.charBefore.level)}</span><span class="rw-l">${charName(r.partner, r.charBefore.level)} <span class="lvl" id="clv">Lv.${r.charBefore.level}</span>
-        ${r.match ? '<em class="tag">とくい ×1.5</em>' : ''}</span><b>+<span id="rcexp">0</span></b>
+      <div class="rw-row" id="row3"><span class="rw-ic" style="color:${ELEMENTS[CHAR_BY_ID[r.partner].el].color}">${icon(charIcon(r.partner, r.charBefore.level))}</span><span class="rw-l">${charName(r.partner, r.charBefore.level)} <span class="lvl" id="clv">Lv.${r.charBefore.level}</span>
+        ${r.match ? '<em class="tag">得意 ×1.5</em>' : ''}</span><b>+<span id="rcexp">0</span></b>
         <div class="bar cexp"><i id="cbar"></i></div></div>
     </div>
     <div class="card battle" id="battle" style="--b1:${st.world.bg[0]};--b2:${st.world.bg[1]}">
-      <div class="bt-title">⚔️ ボスに こうげき！</div>
+      <div class="bt-title">⚔️ ボスに攻撃！</div>
       <div class="arena">
         <div class="ally" id="ally">${avatar(r.partner, { size: 70, lv: r.charBefore.level })}</div>
-        <div class="foe ${st.boss ? 'boss' : ''}" id="rfoe"><div class="foe-name">${st.enemy.n}</div><div class="foe-emo" id="rfoe-emo">${st.enemy.e}</div>
+        <div class="foe ${st.boss ? 'boss' : ''}" id="rfoe"><div class="foe-name">${st.enemy.n}</div><div class="foe-emo" id="rfoe-emo">${icon(st.enemy.e)}</div>
           <div class="hp"><i id="rhp" style="width:${pct(hp0, st.hp)}"></i><span id="rhptext">${hp0} / ${st.hp}</span></div></div>
       </div>
       <div class="bt-msg" id="btmsg">&nbsp;</div>
     </div>
-    <button class="btn big gold" id="next" disabled>つぎへ ▶</button></div>`;
+    <button class="btn big gold" id="next" disabled>次へ ▶</button></div>`;
 
   await sleep(400);
   Sound.coin();
@@ -495,16 +503,16 @@ SCREENS.result = async (el, r) => {
     hpText.textContent = `${hpNow} / ${st.hp}`;
     await sleep(Math.max(220, 900 / hits));
   }
-  const critMsg = b.firstWeak ? '<span class="crit-msg">こうかは ばつぐんだ！</span><br>' : '';
+  const critMsg = b.firstWeak ? '<span class="crit-msg">効果は抜群だ！</span><br>' : '';
   if (critMsg) $('#btmsg').innerHTML = critMsg;
   await sleep(500);
   if (cleared) {
     foe.classList.add('defeated');
-    $('#rfoe').insertAdjacentHTML('beforeend', '<div class="stamp">げきは！</div>');
+    $('#rfoe').insertAdjacentHTML('beforeend', '<div class="stamp">撃破！</div>');
     Sound.win(); FX.confetti(120);
-    $('#btmsg').innerHTML = critMsg + `${st.enemy.n} を たおした！${b.clears.length > 1 ? `<br>さらに ${b.clears.length - 1}たい たおしたぞ！` : ''}`;
+    $('#btmsg').innerHTML = critMsg + `${st.enemy.n}を倒した！${b.clears.length > 1 ? `<br>さらに${b.clears.length - 1}体倒したぞ！` : ''}`;
   } else {
-    $('#btmsg').innerHTML = critMsg + `${b.total} の ダメージ！ あと <b>${st.hp - b.endDmg}</b> で たおせる！`;
+    $('#btmsg').innerHTML = critMsg + `${b.total}のダメージ！ あと<b>${st.hp - b.endDmg}</b>で倒せる！`;
   }
   await sleep(400);
   const next = $('#next');
@@ -518,41 +526,82 @@ SCREENS.result = async (el, r) => {
   };
 };
 
-// ---------- ぼうけん ----------
-SCREENS.adventure = el => {
+// ---------- 冒険（世界一周マップ） ----------
+function cityState(i) { return i < S.stage.i ? 'cleared' : i === S.stage.i ? 'now' : 'locked'; }
+
+function mapSvg(region, base) {
+  const m = MAPS[region.id];
+  const cities = CITIES.filter(c => c.region === region.id);
+  const idx = c => base + CITIES.indexOf(c);
+  let route = '';
+  for (let k = 0; k < cities.length - 1; k++) {
+    const [x1, y1] = m.pts[cities[k].id], [x2, y2] = m.pts[cities[k + 1].id];
+    route += `<line class="route ${idx(cities[k + 1]) <= S.stage.i ? 'done' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  }
+  const dots = cities.map(c => {
+    const [x, y] = m.pts[c.id];
+    const i = idx(c), stt = cityState(i);
+    const [dx, dy, anchor] = c.lab;
+    return `<g class="city ${stt}" data-i="${i}">
+      <circle cx="${x}" cy="${y}" r="13" fill="transparent"/>
+      ${stt === 'now' ? `<circle class="ring2" cx="${x}" cy="${y}" r="6"/>` : ''}
+      <circle class="dot" cx="${x}" cy="${y}" r="${c.boss ? 6 : 4.5}"/>
+      <text x="${x + dx}" y="${y + dy}" text-anchor="${anchor}" font-size="11">${c.name}</text></g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${m.w} ${m.h}" role="img" aria-label="${region.name}の地図">
+    <path class="map-grid" d="${m.grid}"/>
+    ${m.land.map(l => `<path class="land ${l.main ? 'main' : ''}" d="${l.d}"/>`).join('')}
+    ${route}${dots}</svg>`;
+}
+
+SCREENS.adventure = (el, params) => {
   const cur = S.stage.i;
-  const loop = Math.floor(cur / STAGES_PER_LOOP);
-  const base = loop * STAGES_PER_LOOP;
-  const curW = Math.floor((cur - base) / 3);
-  let html = `<h2 class="page-title">🗺️ ぼうけんマップ ${loop ? `<span class="loop">でんせつ ループ${loop + 1}</span>` : ''}</h2>
-    <p class="muted small center">べんきょう すると なかまが こうげき！ よわてんの かもくなら ダメージ ×2</p>`;
-  WORLDS.forEach((w, wi) => {
-    if (wi > curW + 1) {
-      html += `<div class="world locked hidden-w"><div class="w-head">❓ ？？？</div></div>`;
-      return;
-    }
-    if (wi === curW + 1) {
-      html += `<div class="world locked"><div class="w-head">🔒 ${w.icon} ${w.name}</div><p class="small">${WORLDS[wi - 1].enemies[2].n} を たおすと ひらくよ</p></div>`;
-      return;
-    }
-    html += `<div class="world" style="--b1:${w.bg[0]};--b2:${w.bg[1]}"><div class="w-head">${w.icon} ${w.name}</div><div class="nodes">`;
-    for (let k = 0; k < 3; k++) {
-      const st = stageInfo(base + wi * 3 + k);
-      const ws = SUBJECT_BY_EL[st.enemy.weak];
-      if (st.i < cur) html += `<div class="node cleared"><span class="n-emo">${st.enemy.e}</span><small>${st.enemy.n}</small><b>✅ クリア</b></div>`;
-      else if (st.i === cur) html += `<div class="node now ${st.boss ? 'boss' : ''}"><span class="n-emo">${st.enemy.e}</span><small>${st.enemy.n}</small>
-          <div class="hp"><i style="width:${pct(st.hp - S.stage.dmg, st.hp)}"></i></div><b>よわてん ${ws.icon}${ws.name}</b></div>`;
-      else html += `<div class="node ${st.boss ? 'boss' : ''}"><span class="n-emo dim">${st.enemy.e}</span><small>${st.boss ? 'ボス' : '？？？'}</small><b>HP ${st.hp}</b></div>`;
-      if (k < 2) html += '<span class="path">›</span>';
-    }
-    html += '</div></div>';
-  });
-  html += `<button class="btn big gold" id="adv-go">📚 べんきょうして こうげき！</button>`;
-  el.innerHTML = html;
-  $('#adv-go').onclick = () => { Sound.tap(); go('setup'); };
-  const now = $('.node.now', el);
-  if (now) setTimeout(() => now.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100);
+  const now = stageInfo(cur);
+  const base = now.loop * STAGES_PER_LOOP;
+  const maxR = now.loop ? REGIONS.length - 1 : now.regionIdx;
+  const ri = Math.min(params.r ?? now.regionIdx, maxR);
+  const region = REGIONS[ri];
+  const cities = CITIES.filter(c => c.region === region.id);
+  const cleared = cities.filter(c => base + CITIES.indexOf(c) < cur).length;
+  el.innerHTML = `<h2 class="page-title">世界一周の旅 ${now.loop ? `<span class="loop">伝説ループ${now.loop + 1}</span>` : ''}</h2>
+    <div class="region-tabs">${REGIONS.map((r, k) => `<button data-r="${k}" class="${k === ri ? 'on' : ''}" ${k > maxR ? 'disabled' : ''}>
+      ${k > maxR ? '🔒' : r.flag} ${r.name}</button>`).join('')}</div>
+    <div class="map-card"><div class="map-title">${region.flag} ${region.name}<small>${cleared} / ${cities.length} 都市クリア</small></div>
+      ${mapSvg(region, base)}</div>
+    <p class="muted small">街をタップすると、守護者と豆知識が見られます。各地域の6都市で、6教科すべてが弱点として登場します。</p>
+    <div class="city-list">${cities.map(c => {
+      const i = base + CITIES.indexOf(c), stt = cityState(i), sub = SUBJECT_BY_ID[c.subject];
+      const st = stageInfo(i);
+      return `<button class="city-row ${stt} ${c.boss ? 'boss' : ''}" data-i="${i}">
+        <span class="cr-ic">${icon(c.e)}</span>
+        <span class="cr-main"><b>${c.name}</b><small>${c.country}</small></span>
+        ${subjChip(c.subject)}
+        <span class="cr-state">${stt === 'cleared' ? '✔ 撃破' : stt === 'now' ? `HP ${st.hp - S.stage.dmg}` : '🔒'}</span></button>`;
+    }).join('')}</div>
+    <button class="btn big gold" id="adv-go">${icon('crossed-swords', 'btn-ic')} ${now.city.name}で勉強する</button>`;
+  $$('.region-tabs button', el).forEach(b => b.onclick = () => { Sound.tap(); go('adventure', { r: +b.dataset.r }); });
+  $$('[data-i]', el).forEach(b => b.onclick = () => { Sound.tap(); cityModal(+b.dataset.i); });
+  $('#adv-go').onclick = () => { Sound.tap(); go('setup', { subject: now.city.subject }); };
 };
+
+// 街の詳細（守護者・弱点教科・豆知識）
+async function cityModal(i, { arrive = false } = {}) {
+  const st = stageInfo(i), c = st.city, stt = cityState(i);
+  const sub = SUBJECT_BY_ID[c.subject];
+  const left = stt === 'now' ? st.hp - S.stage.dmg : stt === 'cleared' ? 0 : st.hp;
+  const open = stt !== 'locked';
+  const v = await modal(`${arrive ? '<div class="arrive">NEW CITY ARRIVAL</div>' : ''}
+    <div class="city-head"><div class="flag">${st.region.flag}</div><div><h2>${c.name}</h2><small>${c.country}</small></div></div>
+    <div class="city-subj"><div>この街の弱点教科<div class="why">${c.why}</div></div>${subjChip(c.subject)}</div>
+    <div class="guardian">${icon(c.e)}<div style="flex:1"><b>守護者：${c.n}</b>${c.boss ? ' <span class="tag hot">BOSS</span>' : ''}
+      <div class="hp"><i style="width:${pct(left, st.hp)}"></i><span>${left} / ${st.hp}</span></div></div></div>
+    ${open ? `<ul class="trivia">${c.facts.map(f => `<li>${f}</li>`).join('')}</ul>`
+      : '<p class="muted small" style="margin-top:12px">🔒 この街に到着すると豆知識が読めるようになります</p>'}
+    <div class="m-btns">${stt === 'now'
+      ? `<button class="btn ghost" data-v="close">閉じる</button><button class="btn gold" data-v="study">${sub.name}で攻撃</button>`
+      : '<button class="btn gold" data-v="close">閉じる</button>'}</div>`, { dismiss: true, cls: arrive ? 'shine' : '' });
+  if (v === 'study') go('setup', { subject: c.subject });
+}
 
 // ---------- ガチャ ----------
 SCREENS.gacha = el => {
@@ -563,19 +612,19 @@ SCREENS.gacha = el => {
     return `<i style="left:${8 + (i * 37) % 78}%;top:${18 + ((i * 53) % 60)}%;background:${colors[i % colors.length]}"></i>`;
   }).join('');
   el.innerHTML = `<div class="gacha">
-    <h2 class="g-title">✨ なかまガチャ ✨</h2>
+    <h2 class="g-title">召喚ゲート</h2>
     <div class="machine" id="machine"><div class="dome">${caps}</div><div class="mbody"><div class="slot"></div><div class="handle" id="handle"></div></div></div>
-    <div class="pity">★★★ かくていまで あと <b>${left}</b> かい</div>
+    <div class="pity">★★★確定まで あと<b>${left}</b>回</div>
     <div class="g-btns">
-      <button class="btn gold" data-k="ticket" ${p.tickets < 1 ? 'disabled' : ''}>🎫 チケットで ひく <small>のこり ${p.tickets}まい</small></button>
-      <button class="btn" data-k="one" ${p.stars < GACHA.cost1 ? 'disabled' : ''}>⭐${GACHA.cost1} で 1かい ひく</button>
-      <button class="btn pink" data-k="ten" ${p.stars < GACHA.cost10 ? 'disabled' : ''}>⭐${GACHA.cost10} で 10れん！<small>★★いじょう 1たい かくてい</small></button>
+      <button class="btn gold" data-k="ticket" ${p.tickets < 1 ? 'disabled' : ''}>🎫 チケットで引く <small>残り${p.tickets}枚</small></button>
+      <button class="btn" data-k="one" ${p.stars < GACHA.cost1 ? 'disabled' : ''}>⭐${GACHA.cost1}で1回引く</button>
+      <button class="btn pink" data-k="ten" ${p.stars < GACHA.cost10 ? 'disabled' : ''}>⭐${GACHA.cost10}で10連！<small>★★以上1体確定</small></button>
     </div>
-    <p class="muted small center">⭐ は べんきょう 1ぷんで 1こ もらえるよ</p>
-    <details class="card rates"><summary>でる かくりつ</summary>
+    <p class="muted small center">⭐は勉強1分につき1個もらえる</p>
+    <details class="card rates"><summary>排出確率</summary>
       <p>★★★ ${GACHA.rates[3]}% ／ ★★ ${GACHA.rates[2]}% ／ ★ ${GACHA.rates[1]}%</p>
-      <p>${GACHA.pityMax}かい ひくまでに かならず ★★★ が でるよ。<br>おなじ なかまが でたら、その なかまの けいけんちに なるよ。</p>
-      <p>このガチャは べんきょうで ためた ⭐ と 🎫 だけで ひけます（おかねは かかりません）。</p></details>
+      <p>${GACHA.pityMax}回引くまでに必ず★★★が出ます。<br>同じ仲間が出た場合は、その仲間の経験値になります。</p>
+      <p>このガチャは勉強でためた⭐と🎫だけで引けます（お金は一切かかりません）。</p></details>
   </div>`;
   $$('.g-btns .btn', el).forEach(b => b.onclick = () => doPull(b.dataset.k));
 };
@@ -592,7 +641,7 @@ async function doPull(kind) {
   const ov = document.createElement('div');
   ov.className = 'g-overlay';
   ov.innerHTML = `<div class="g-stage"><div class="capsule drop c${fakeOut ? 2 : best}" id="cap"><div class="cap-top"></div><div class="cap-bot"></div></div>
-    <div class="g-tap hidden" id="gtap">タップして あけよう！</div></div>`;
+    <div class="g-tap hidden" id="gtap">タップして開けよう！</div></div>`;
   document.body.appendChild(ov);
   await sleep(1400);
   const cap = $('#cap', ov);
@@ -618,17 +667,17 @@ async function doPull(kind) {
       ${x.isNew ? '<span class="new">NEW!</span>' : ''}
       ${avatar(x.id, { size: res.results.length > 1 ? 54 : 120 })}
       ${rarityTag(x.r)}<b>${charName(x.id)}</b>${res.results.length === 1 ? elTag(c.el) : ''}
-      ${x.isNew ? '' : `<small>かさなった！ EXP+${x.bonus}</small>`}</div>`;
+      ${x.isNew ? '' : `<small>ダブり！ EXP+${x.bonus}</small>`}</div>`;
   };
   const single = res.results.length === 1 ? res.results[0] : null;
   ov.querySelector('.g-stage').innerHTML = `<div class="g-results ${single ? 'single' : 'multi'}">${res.results.map(card).join('')}</div>
     <div class="g-actions">
-      ${single && single.id !== S.partner ? `<button class="btn ghost" id="gpart">パートナーに する</button>` : ''}
+      ${single && single.id !== S.partner ? `<button class="btn ghost" id="gpart">パートナーにする</button>` : ''}
       <button class="btn gold" id="gok">OK</button></div>`;
   await new Promise(r => {
     $('#gok', ov).onclick = r;
     const gp = $('#gpart', ov);
-    if (gp) gp.onclick = () => { S.partner = single.id; save(); Sound.coin(); gp.textContent = '✅ パートナーに なった！'; gp.disabled = true; };
+    if (gp) gp.onclick = () => { S.partner = single.id; save(); Sound.coin(); gp.textContent = '✅ パートナーになった！'; gp.disabled = true; };
   });
   Sound.tap();
   ov.classList.add('out');
@@ -637,26 +686,26 @@ async function doPull(kind) {
   if (current.name === 'gacha') render();
 }
 
-// ---------- なかま ----------
+// ---------- 仲間 ----------
 SCREENS.zukan = el => {
   const owned = Object.keys(S.chars).length;
   const id = S.partner, c = CHAR_BY_ID[id], o = S.chars[id];
   const st = charStage(o.level);
   const nextEvo = st < 2 ? EVOLVE_LV[st] : null;
   const sub = SUBJECT_BY_EL[c.el];
-  el.innerHTML = `<h2 class="page-title">📚 なかま <span class="muted">${owned} / ${CHARACTERS.length}</span></h2>
+  el.innerHTML = `<h2 class="page-title">仲間 <span class="muted">${owned} / ${CHARACTERS.length}</span></h2>
     <div class="card partner-card" style="--el:${ELEMENTS[c.el].color}">
       <div class="pc-tag">パートナー</div>
       <div class="bob">${avatar(id, { size: 110 })}</div>
       <div class="pc-info"><div>${rarityTag(c.r)} ${elTag(c.el)}</div><h3>${charName(id)} <span class="lvl">Lv.${o.level}</span></h3>
         <div class="bar cexp"><i style="width:${o.level >= CHAR_MAX_LV ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
-        <p class="small">⚔️ つよさ ${charPower(id)}　${sub.icon}${sub.name}で よく そだつ</p>
-        <p class="small">${nextEvo ? `✨ Lv${nextEvo} で しんか！` : '👑 さいごの すがた！'}</p></div>
+        <p class="small">⚔️ 強さ ${charPower(id)}　${sub.icon}${sub.name}でよく育つ</p>
+        <p class="small">${nextEvo ? `✨ Lv${nextEvo}で進化！` : '👑 最終形態！'}</p></div>
     </div>
     <div class="zukan">${CHARACTERS.map(ch => {
       const has = !!S.chars[ch.id];
       return `<button class="z-cell ${has ? '' : 'unknown'} ${ch.id === S.partner ? 'is-partner' : ''}" data-id="${ch.id}" style="--el:${ELEMENTS[ch.el].color}">
-        ${has ? avatar(ch.id, { size: 56 }) : `<div class="avatar silhouette" style="--sz:56px"><span class="emo">${ch.forms[0]}</span></div>`}
+        ${has ? avatar(ch.id, { size: 56 }) : `<div class="avatar silhouette" style="--sz:56px">${icon(ch.forms[0])}</div>`}
         <small>${has ? charName(ch.id) : '？？？'}</small>
         <span class="z-meta">${has ? `Lv.${S.chars[ch.id].level}` : ''} <span class="rarity r${ch.r}">${RARITY[ch.r].stars}</span></span></button>`;
     }).join('')}</div>`;
@@ -666,25 +715,25 @@ SCREENS.zukan = el => {
 async function charDetail(id) {
   const c = CHAR_BY_ID[id], o = S.chars[id];
   if (!o) {
-    await modal(`<div class="m-av"><div class="avatar silhouette" style="--sz:110px"><span class="emo">${c.forms[0]}</span></div></div>
-      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p><p>ガチャで であえるかも…！</p>
-      <button class="btn gold wide" data-v="ok">とじる</button>`, { dismiss: true });
+    await modal(`<div class="m-av"><div class="avatar silhouette" style="--sz:110px">${icon(c.forms[0])}</div></div>
+      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p><p>ガチャで出会えるかも…！</p>
+      <button class="btn gold wide" data-v="ok">閉じる</button>`, { dismiss: true });
     return;
   }
   const st = charStage(o.level);
   const sub = SUBJECT_BY_EL[c.el];
   const evo = c.forms.map((f, i) => i <= st
-    ? `<div class="evo-step"><span>${f}</span><small>${c.names[i]}</small></div>`
-    : `<div class="evo-step locked"><span class="sil">${f}</span><small>Lv${EVOLVE_LV[i - 1]}で しんか</small></div>`).join('<span class="path">›</span>');
+    ? `<div class="evo-step" style="color:${ELEMENTS[c.el].color}">${icon(f)}<small>${c.names[i]}</small></div>`
+    : `<div class="evo-step locked">${icon(f, 'sil')}<small>Lv${EVOLVE_LV[i - 1]}で進化</small></div>`).join('<span class="path">›</span>');
   const isP = id === S.partner;
   const v = await modal(`<div class="m-av bounce">${avatar(id, { size: 120 })}</div>
     <h2>${charName(id)}</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p>
-    <div class="stat-grid"><div><small>レベル</small><b>${o.level}</b></div><div><small>つよさ</small><b>${charPower(id)}</b></div><div><small>であった かず</small><b>${o.count}</b></div></div>
+    <div class="stat-grid"><div><small>レベル</small><b>${o.level}</b></div><div><small>強さ</small><b>${charPower(id)}</b></div><div><small>出会った数</small><b>${o.count}</b></div></div>
     <div class="bar cexp"><i style="width:${o.level >= CHAR_MAX_LV ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
-    <p class="small">${sub.icon} ${sub.name} を べんきょうすると けいけんち ×1.5</p>
+    <p class="small">${sub.icon}${sub.name}を勉強すると経験値×1.5</p>
     <div class="evo-line">${evo}</div>
-    <div class="m-btns"><button class="btn ghost" data-v="close">とじる</button>
-    ${isP ? '<button class="btn" disabled>パートナー</button>' : '<button class="btn gold" data-v="partner">パートナーに する</button>'}</div>`, { dismiss: true });
+    <div class="m-btns"><button class="btn ghost" data-v="close">閉じる</button>
+    ${isP ? '<button class="btn" disabled>パートナー</button>' : '<button class="btn gold" data-v="partner">パートナーにする</button>'}</div>`, { dismiss: true });
   if (v === 'partner') {
     S.partner = id; save();
     Sound.coin();
@@ -692,7 +741,7 @@ async function charDetail(id) {
   }
 }
 
-// ---------- きろく ----------
+// ---------- 記録 ----------
 SCREENS.records = (el, params) => {
   const off = params.m || 0;
   const now = new Date();
@@ -707,7 +756,7 @@ SCREENS.records = (el, params) => {
   const firstDow = new Date(y, m, 1).getDay();
   const nDays = new Date(y, m + 1, 0).getDate();
   const t = today();
-  let cal = ['にち', 'げつ', 'か', 'すい', 'もく', 'きん', 'ど'].map(d => `<div class="cal-h">${d}</div>`).join('');
+  let cal = ['日', '月', '火', '水', '木', '金', '土'].map(d => `<div class="cal-h">${d}</div>`).join('');
   for (let i = 0; i < firstDow; i++) cal += '<div></div>';
   let monthMin = 0;
   for (let d = 1; d <= nDays; d++) {
@@ -718,7 +767,7 @@ SCREENS.records = (el, params) => {
     cal += `<div class="cal-d ${k === t ? 'today' : ''} ${mins ? 'has' : ''}"><span>${d}</span>${stamp ? `<i>${stamp}</i>` : ''}${mins ? `<small>${mins}</small>` : ''}</div>`;
   }
 
-  // 1しゅうかん
+  // 1週間
   const week = [];
   for (let i = 6; i >= 0; i--) {
     const k = dayOffset(t, -i);
@@ -727,7 +776,7 @@ SCREENS.records = (el, params) => {
       parts: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) })).filter(x => x.min) });
   }
   const wMax = Math.max(30, ...week.map(w => w.total));
-  const dows = ['にち', 'げつ', 'か', 'すい', 'もく', 'きん', 'ど'];
+  const dows = ['日', '月', '火', '水', '木', '金', '土'];
   const weekHtml = week.map(w => {
     const [yy, mm, dd] = w.k.split('-').map(Number);
     return `<div class="wk-col"><small class="wk-v">${w.total || ''}</small><div class="wk-bar">${w.parts.map(p =>
@@ -739,41 +788,42 @@ SCREENS.records = (el, params) => {
   const sMax = Math.max(1, ...subTotals.map(x => x.min));
   const recent = S.sessions.slice(-10).reverse();
 
-  el.innerHTML = `<h2 class="page-title">📅 きろく</h2>
+  el.innerHTML = `<h2 class="page-title">記録</h2>
     <div class="stat-grid big">
-      <div><small>ごうけい</small><b>${fmtMin(totalMin)}</b></div>
-      <div><small>べんきょうした日</small><b>${days}にち</b></div>
-      <div><small>れんぞく</small><b>🔥${currentStreak()}にち</b></div>
+      <div><small>合計</small><b>${fmtMin(totalMin)}</b></div>
+      <div><small>勉強した日数</small><b>${days}日</b></div>
+      <div><small>連続記録</small><b>🔥${currentStreak()}日</b></div>
     </div>
     <div class="card"><div class="cal-nav"><button class="icon-btn" id="prevm">◀</button>
-      <h3>${y}ねん ${m + 1}がつ <span class="muted small">${fmtMin(monthMin)}</span></h3>
+      <h3>${y}年${m + 1}月 <span class="muted small">${fmtMin(monthMin)}</span></h3>
       <button class="icon-btn" id="nextm" ${off >= 0 ? 'disabled' : ''}>▶</button></div>
-      <div class="cal">${cal}</div><p class="small muted">⭐ べんきょうした日　💮 30ぷん いじょう</p></div>
-    <div class="card"><h3>この 1しゅうかん</h3><div class="week">${weekHtml}</div></div>
-    <div class="card"><h3>かもくべつ</h3>${subTotals.map(x => `<div class="sub-row"><span class="sr-name">${x.sub.icon} ${x.sub.name}</span>
+      <div class="cal">${cal}</div><p class="small muted">⭐ 勉強した日　💮 30分以上</p></div>
+    <div class="card"><h3>この1週間</h3><div class="week">${weekHtml}</div></div>
+    <div class="card"><h3>教科別</h3>${subTotals.map(x => `<div class="sub-row"><span class="sr-name">${x.sub.icon} ${x.sub.name}</span>
       <div class="sr-bar"><i style="width:${(x.min / sMax) * 100}%;background:${x.sub.color}"></i></div><span class="sr-v">${fmtMin(x.min)}</span></div>`).join('')}</div>
-    <div class="card"><h3>さいきんの きろく</h3>${recent.length ? recent.map(s => {
+    <div class="card"><h3>最近の記録</h3>${recent.length ? recent.map(s => {
       const d = new Date(s.at);
       return `<div class="recent"><span class="muted">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</span>
         ${subjChip(s.subject)}<b>${fmtMin(s.minutes)}</b>${s.goalMet ? '🎯' : ''}</div>`;
-    }).join('') : '<p class="muted">まだ きろくが ないよ</p>'}</div>`;
+    }).join('') : '<p class="muted">まだ記録がありません</p>'}</div>`;
   $('#prevm').onclick = () => { Sound.tap(); go('records', { m: off - 1 }); };
   $('#nextm').onclick = () => { Sound.tap(); go('records', { m: off + 1 }); };
 };
 
-// ---------- せってい ----------
+// ---------- 設定 ----------
 function openSettings() {
-  const m = openModal(`<h2>⚙️ せってい</h2>
-    <label class="lbl">なまえ</label><input id="setname" class="input" maxlength="10" value="${esc(S.player.name)}">
-    <label class="row-check"><input type="checkbox" id="setsound" ${S.settings.sound ? 'checked' : ''}> こうかおん を ならす</label>
+  const m = openModal(`<h2>⚙️ 設定</h2>
+    <label class="lbl">名前</label><input id="setname" class="input" maxlength="10" value="${esc(S.player.name)}">
+    <label class="row-check"><input type="checkbox" id="setsound" ${S.settings.sound ? 'checked' : ''}> 効果音を鳴らす</label>
     <div class="parent">
-      <h3>おうちの かたへ</h3>
-      <p class="small">データは このブラウザの中だけに ほぞんされます。お金は かかりません。ガチャは べんきょう時間で ためた ⭐ と 🎫 だけで ひけます。1回の きろくは さいだい ${MAX_SESSION_MIN}分 です。</p>
-      <div class="m-btns"><button class="btn ghost mini" id="export">データを ダウンロード</button><button class="btn ghost mini" id="import">データを よみこむ</button></div>
+      <h3>保護者の方へ</h3>
+      <p class="small">データはこのブラウザ内にのみ保存されます。料金は一切かかりません。ガチャは勉強時間でためた⭐と🎫だけで引けます。1回の記録は最大${MAX_SESSION_MIN}分です。</p>
+      <div class="m-btns"><button class="btn ghost mini" id="export">データをダウンロード</button><button class="btn ghost mini" id="import">データを読み込む</button></div>
       <input type="file" id="importfile" accept="application/json" hidden>
-      <button class="link danger" id="reset">さいしょから やりなおす</button>
+      <button class="link danger" id="reset">最初からやり直す</button>
     </div>
-    <button class="btn gold wide" id="setclose">とじる</button>`, { dismiss: false });
+    <p class="credit">キャラクター・敵アイコン：<a href="https://game-icons.net/" target="_blank" rel="noopener">game-icons.net</a>（Lorc, Delapouite ほか / CC BY 3.0）<br>地図データ：Natural Earth</p>
+    <button class="btn gold wide" id="setclose">閉じる</button>`, { dismiss: false });
   const el = m.el;
   $('#setclose', el).onclick = () => {
     const name = $('#setname', el).value.trim();
@@ -796,18 +846,18 @@ function openSettings() {
     try {
       const d = JSON.parse(await f.text());
       if (!d.player || !d.chars) throw new Error('bad');
-      if (!confirm('いまの データを うわがきして よみこみますか？')) return;
+      if (!confirm('現在のデータを上書きして読み込みますか？')) return;
       S = { ...defaultState(), ...d, settings: { ...defaultState().settings, ...(d.settings || {}) } };
       save(); m.close(); go(S.player ? 'home' : 'onboard');
-    } catch (err) { alert('よみこめませんでした。ファイルを かくにんしてください。'); }
+    } catch (err) { alert('読み込めませんでした。ファイルを確認してください。'); }
   };
   $('#reset', el).onclick = () => {
-    const ans = prompt('すべての データが きえます。やりなおす ときは「リセット」と にゅうりょく してください。');
+    const ans = prompt('すべてのデータが消えます。やり直す場合は「リセット」と入力してください。');
     if (ans === 'リセット') { localStorage.removeItem(SAVE_KEY); S = defaultState(); m.close(); go('onboard'); }
   };
 }
 
-// ---------- スタート ----------
+// ---------- 起動 ----------
 document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });
 if (!S.player) go('onboard');
 else if (S.active) go('timer');
