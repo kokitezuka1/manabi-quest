@@ -402,4 +402,6 @@ const STREAK_CONTRACTS = { 30: 's', 100: 'ssel' };   // 連続日数のごほう
 // 保護者ページの設定
 const PRIORITY_STAR_RATE = 1.5;          // 優先教科を勉強すると⭐が1.5倍
 const TARGET_BONUS = { stars: 20 };      // 1日の目標時間を達成したときのボーナス
-const TARGET_OPTIONS = [0, 15, 20, 30, 45, 60, 75, 90, 105, 120, 150, 180];
+const TARGET_OPTIONS = [0, 15, 20, 30, 45, 60, 75, 90, 105, 120, 150, 180];   // 平日の1日の目標（分）
+// 土日は最大12時間まで（3時間より上は1時間ごと）
+const WEEKEND_TARGET_OPTIONS = [...TARGET_OPTIONS, 240, 300, 360, 420, 480, 540, 600, 660, 720];

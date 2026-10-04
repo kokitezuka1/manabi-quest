@@ -360,8 +360,8 @@ function weekHtml() {
 }
 
 // ---------- 設定 ----------
-function targetSelect(id, value) {
-  return `<select id="${id}">${TARGET_OPTIONS.map(m => `<option value="${m}" ${m === value ? 'selected' : ''}>${m ? fmtMin(m) : '設定しない'}</option>`).join('')}</select>`;
+function targetSelect(id, value, options = TARGET_OPTIONS) {
+  return `<select id="${id}">${options.map(m => `<option value="${m}" ${m === value ? 'selected' : ''}>${m ? fmtMin(m) : '設定しない'}</option>`).join('')}</select>`;
 }
 function settingsHtml() {
   const d = draft;
@@ -371,7 +371,7 @@ function settingsHtml() {
     <h3>1日の目標学習時間</h3>
     <div class="targets">
       <label>平日（月〜金）${targetSelect('t-weekday', d.target.weekday)}</label>
-      <label>土日${targetSelect('t-weekend', d.target.weekend)}</label>
+      <label>土日${targetSelect('t-weekend', d.target.weekend, WEEKEND_TARGET_OPTIONS)}</label>
     </div>
     <p class="note">お子さまのホーム画面に「今日の目標」と残り時間が表示されます。達成すると ⭐+${TARGET_BONUS.stars} のボーナス。</p>
     <h3>優先して学習させたい教科</h3>
