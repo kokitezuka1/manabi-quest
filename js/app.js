@@ -112,6 +112,13 @@ async function runEvents(events) {
         <p>${ev.streak >= 2 ? '毎日続けていてえらい！' : '毎日続けるとボーナスが増えていくぞ'}</p>
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
         <button class="btn gold wide" data-v="ok">受け取る</button>`);
+    } else if (ev.type === 'target') {
+      Sound.levelup(); FX.confetti(140);
+      await modal(`<div class="m-emo gold">${icon('laurel-crown')}</div>
+        <h2>今日の目標時間を達成！</h2>
+        <p>おうちの人と決めた<b>${fmtMin(ev.target)}</b>をクリアした！</p>
+        <div class="rw-big">⭐+${ev.stars}</div>
+        <button class="btn gold wide" data-v="ok">やったー！</button>`, { cls: 'shine' });
     } else if (ev.type === 'levelup') {
       Sound.levelup(); FX.confetti(140);
       await modal(`<div class="lvup">LEVEL UP!</div>
@@ -216,6 +223,23 @@ function sceneHtml(st) {
   </div>`;
 }
 
+// 保護者ページで決めた「今日の目標時間」と「おすすめ教科」
+function promiseHtml(t) {
+  const target = targetFor(today());
+  const prio = S.parent.priority;
+  if (!target && !prio.length) return '';
+  const left = Math.max(0, target - t.minutes);
+  return `<div class="card promise"><h3>🏠 おうちの人との約束</h3>
+    ${target ? `<div class="pr-row"><span>今日の目標 <b>${fmtMin(target)}</b></span>
+      <span class="${left ? '' : 'ok'}">${left ? `あと${fmtMin(left)}` : '✅ 達成！'}</span></div>
+      <div class="bar promise-bar"><i style="width:${pct(t.minutes, target)}"></i></div>
+      ${left ? `<p class="small muted">達成すると ⭐+${TARGET_BONUS.stars}</p>` : ''}` : ''}
+    ${prio.length ? `<div class="pr-subs"><span class="small">おすすめ教科（⭐×${PRIORITY_STAR_RATE}）</span>
+      ${prio.map(id => `<button class="chip pr-chip" data-s="${id}" style="background:${SUBJECT_BY_ID[id].color}">${SUBJECT_BY_ID[id].icon} ${SUBJECT_BY_ID[id].name}
+        <small>${fmtMin(t.bySubject.find(x => x.sub.id === id).min)}</small></button>`).join('')}</div>` : ''}
+  </div>`;
+}
+
 function missionsHtml() {
   return missionList().map(m => {
     const rw = m.reward.tickets ? `🎫×${m.reward.tickets}` : `⭐×${m.reward.stars}`;
@@ -239,8 +263,10 @@ SCREENS.home = el => {
       <div class="today-bar">${t.minutes ? t.bySubject.filter(x => x.min).map(x =>
         `<i style="flex:${x.min};background:${x.sub.color}" title="${x.sub.name}">${x.sub.icon}</i>`).join('') : '<span class="muted">まだ記録がありません。さっそく始めよう！</span>'}</div>
     </div>
+    ${promiseHtml(t)}
     <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
+  $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if (showGachaHint) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
   $('#missions').onclick = e => {
@@ -269,6 +295,7 @@ SCREENS.setup = (el, params) => {
       <p class="muted small">${st.region.flag} ${st.city.name}の守護者「${st.enemy.n}」は <b style="color:${SUBJECT_BY_ID[st.city.subject].color}">${SUBJECT_BY_ID[st.city.subject].name}</b> が弱点</p>
       <div class="subj-grid">${SUBJECTS.map(s => `<button class="subj ${s.id === subj ? 'sel' : ''}" data-s="${s.id}" style="--c:${s.color}">
         <span class="si">${s.icon}</span><span class="sn">${s.name}</span>
+        ${isPriority(s.id) ? `<em class="tag prio">おすすめ ⭐×${PRIORITY_STAR_RATE}</em>` : ''}
         ${s.el === st.enemy.weak ? '<em class="tag hot">この街の弱点 ×2</em>' : ''}
         ${s.el === pel ? '<em class="tag">仲間が育つ</em>' : ''}</button>`).join('')}</div>
       <p class="muted small">「その他」は宿題・読書・プリント・ドリルなど</p>
@@ -276,7 +303,7 @@ SCREENS.setup = (el, params) => {
       <div class="goal-row">${GOAL_OPTIONS.map(g => `<button class="goal ${g === goal ? 'sel' : ''}" data-g="${g}">${g}<small>分</small></button>`).join('')}</div>
       <div class="card preview">
         <div>目標を達成すると獲得できる報酬</div>
-        <div class="pv-row"><span>⭐ <b>${goal + 5}</b></span><span>🧠 <b>${Math.round(goal * 12)}</b></span><span>⚔️ <b>${dmg * goal}</b>${weak ? '<em class="tag hot">×2</em>' : ''}</span></div>
+        <div class="pv-row"><span>⭐ <b>${starsFor(goal, true, subj)}</b></span><span>🧠 <b>${Math.round(goal * 12)}</b></span><span>⚔️ <b>${dmg * goal}</b>${weak ? '<em class="tag hot">×2</em>' : ''}</span></div>
       </div>
       <button class="btn big gold pulse" id="go">▶ スタート！</button></div>`;
     $('#back').onclick = () => { Sound.tap(); go('home'); };
@@ -351,7 +378,7 @@ SCREENS.timer = el => {
     if (min !== lastMin) {
       const first = lastMin === -1;
       lastMin = min;
-      $('#lstars').textContent = min + (met ? 5 : 0);
+      $('#lstars').textContent = starsFor(min, met, a.subject);
       $('#lxp').textContent = Math.round(min * 10 * (met ? 1.2 : 1));
       $('#ldmg').textContent = min * dpm;
       if (!first && min > 0) {
@@ -448,7 +475,7 @@ SCREENS.result = async (el, r) => {
     <div class="res-sub">${subjChip(r.subject)}を <b class="big-num" id="rmin">0</b> 分がんばった！</div>
     ${r.goalMet ? '<div class="goal-badge">🎯 目標達成ボーナス！</div>' : ''}
     <div class="card rewards">
-      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">スター</span><b>+<span id="rstars">0</span></b></div>
+      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">スター${r.prio ? ` <em class="tag prio">おすすめ ×${PRIORITY_STAR_RATE}</em>` : ''}</span><b>+<span id="rstars">0</span></b></div>
       <div class="rw-row" id="row2"><span class="rw-ic">🧠</span><span class="rw-l">経験値 <span class="lvl" id="plv">Lv.${r.xpBefore.level}</span></span><b>+<span id="rxp">0</span></b>
         <div class="bar xp"><i id="pbar"></i></div></div>
       <div class="rw-row" id="row3"><span class="rw-ic" style="color:${ELEMENTS[CHAR_BY_ID[r.partner].el].color}">${icon(charIcon(r.partner, r.charBefore.level))}</span><span class="rw-l">${charName(r.partner, r.charBefore.level)} <span class="lvl" id="clv">Lv.${r.charBefore.level}</span>
@@ -551,6 +578,7 @@ function mapSvg(region, base) {
   return `<svg viewBox="0 0 ${m.w} ${m.h}" role="img" aria-label="${region.name}の地図">
     <path class="map-grid" d="${m.grid}"/>
     ${m.land.map(l => `<path class="land ${l.main ? 'main' : ''}" d="${l.d}"/>`).join('')}
+    ${m.borders ? `<path class="borders" d="${m.borders}"/>` : ''}${m.frames ? `<path class="frames" d="${m.frames}"/>` : ''}
     ${route}${dots}</svg>`;
 }
 
@@ -565,7 +593,7 @@ SCREENS.adventure = (el, params) => {
   const cleared = cities.filter(c => base + CITIES.indexOf(c) < cur).length;
   el.innerHTML = `<h2 class="page-title">世界一周の旅 ${now.loop ? `<span class="loop">伝説ループ${now.loop + 1}</span>` : ''}</h2>
     <div class="region-tabs">${REGIONS.map((r, k) => `<button data-r="${k}" class="${k === ri ? 'on' : ''}" ${k > maxR ? 'disabled' : ''}>
-      ${k > maxR ? '🔒' : r.flag} ${r.name}</button>`).join('')}</div>
+      ${k > maxR ? '🔒' : r.flag} ${r.short || r.name}</button>`).join('')}</div>
     <div class="map-card"><div class="map-title">${region.flag} ${region.name}<small>${cleared} / ${cities.length} 都市クリア</small></div>
       ${mapSvg(region, base)}</div>
     <p class="muted small">街をタップすると、守護者と豆知識が見られます。各地域の6都市で、6教科すべてが弱点として登場します。</p>
@@ -818,6 +846,8 @@ function openSettings() {
     <div class="parent">
       <h3>保護者の方へ</h3>
       <p class="small">データはこのブラウザ内にのみ保存されます。料金は一切かかりません。ガチャは勉強時間でためた⭐と🎫だけで引けます。1回の記録は最大${MAX_SESSION_MIN}分です。</p>
+      <a class="btn mini wide parent-link" href="parent.html">👪 保護者ページを開く</a>
+      <p class="small">勉強時間の確認や、1日の目標時間・優先する教科の設定ができます。</p>
       <div class="m-btns"><button class="btn ghost mini" id="export">データをダウンロード</button><button class="btn ghost mini" id="import">データを読み込む</button></div>
       <input type="file" id="importfile" accept="application/json" hidden>
       <button class="link danger" id="reset">最初からやり直す</button>
@@ -847,7 +877,7 @@ function openSettings() {
       const d = JSON.parse(await f.text());
       if (!d.player || !d.chars) throw new Error('bad');
       if (!confirm('現在のデータを上書きして読み込みますか？')) return;
-      S = { ...defaultState(), ...d, settings: { ...defaultState().settings, ...(d.settings || {}) } };
+      S = normalize(d);
       save(); m.close(); go(S.player ? 'home' : 'onboard');
     } catch (err) { alert('読み込めませんでした。ファイルを確認してください。'); }
   };
@@ -856,6 +886,13 @@ function openSettings() {
     if (ans === 'リセット') { localStorage.removeItem(SAVE_KEY); S = defaultState(); m.close(); go('onboard'); }
   };
 }
+
+// 保護者ページ（別のタブ）で設定が変わったら取り込む
+window.addEventListener('storage', e => {
+  if (e.key !== SAVE_KEY || !e.newValue) return;
+  try { S.parent = normalize(JSON.parse(e.newValue)).parent; } catch (err) { return; }
+  if (['home', 'setup'].includes(current.name)) render();
+});
 
 // ---------- 起動 ----------
 document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });

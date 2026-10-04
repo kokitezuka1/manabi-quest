@@ -18,14 +18,18 @@ function defaultState() {
     player: null,              // { name, level, xp, stars, tickets, createdAt }
     chars: {},                 // { [id]: { level, exp, count } }
     partner: null,
-    stage: { i: 0, dmg: 0 },
+    stage: { i: 0, dmg: 0, ver: 2 },
     sessions: [],              // { subject, minutes, goal, goalMet, date, at }
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },
     settings: { sound: true, lastGoal: 15, lastSubject: null },
     active: null,              // タイマー実行中の情報
+    parent: defaultParent(),   // 保護者ページで決める目標時間と優先教科
   };
+}
+function defaultParent() {
+  return { target: { weekday: 0, weekend: 0 }, priority: [], pin: '' };   // target: 1日の目標（分）、0は未設定
 }
 
 let S = load();
@@ -34,15 +38,28 @@ function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
-      const d = JSON.parse(raw);
-      const base = defaultState();
-      return migrate({ ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } });
+      return normalize(JSON.parse(raw));
     }
   } catch (e) { /* 壊れたデータは無視 */ }
   return defaultState();
 }
-// 旧キャラIDを新キャラIDに置き換える
+function normalize(d) {
+  const base = defaultState();
+  const parent = { ...base.parent, ...(d.parent || {}) };
+  parent.target = { ...base.parent.target, ...(parent.target || {}) };
+  return migrate({ ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) }, parent });
+}
+// 旧データを今の形に直す
 function migrate(st) {
+  // 冒険の進み具合：アメリカを回っている途中なら、クリアした数だけ新しいアメリカの旅を進める。
+  // ヨーロッパ以降にいるなら、同じ街に移す。
+  if (!st.stage.ver) {
+    const n = OLD_CITY_ORDER.length;
+    const loop = Math.floor(st.stage.i / n), k = st.stage.i % n;
+    const ni = k < 6 ? k : CITIES.findIndex(c => c.id === OLD_CITY_ORDER[k]);
+    st.stage = { i: loop * CITIES.length + ni, dmg: 0, ver: 2 };
+  }
+  // 旧キャラIDを新キャラIDに置き換える
   const chars = {};
   for (const [id, o] of Object.entries(st.chars || {})) {
     const nid = CHAR_BY_ID[id] ? id : OLD_CHAR_IDS[id];
@@ -123,7 +140,9 @@ function stageInfo(i) {
   const region = REGION_BY_ID[city.region];
   const sub = CITIES.filter(c => c.region === city.region).indexOf(city);
   const enemy = { e: city.e, n: city.n, weak: SUBJECT_BY_ID[city.subject].el, boss: !!city.boss };
-  const raw = (120 + i * 90 + i * i * 6) * (enemy.boss ? 1.6 : 1);
+  // 旧バージョン（1周24都市）と同じ上がり方で、都市が増えた分だけ1都市のHPを軽くする
+  const j = i * 24 / STAGES_PER_LOOP;
+  const raw = Math.max(100, (120 + j * 90 + j * j * 6) * 0.6) * (enemy.boss ? 1.6 : 1);
   return { i, loop, k, city, region, world: region, regionIdx: REGIONS.indexOf(region), sub, enemy, boss: enemy.boss, hp: Math.round(raw / 10) * 10 };
 }
 function currentStage() { return stageInfo(S.stage.i); }
@@ -155,8 +174,8 @@ function dealDamage(minutes, subjectId, events) {
     let stars = 0, tickets = 0;
     for (const ci of clears) {
       const st = stageInfo(ci);
-      stars += st.boss ? 60 : 25;
-      if (st.boss) tickets += 2;
+      stars += st.boss ? 40 : 15;
+      if (st.boss) tickets += 1;
     }
     S.player.stars += stars;
     S.player.tickets += tickets;
@@ -195,9 +214,16 @@ function finishSession(subject, minutes, goal, goalMet) {
   touchStreak(events);
 
   const xp = Math.round(minutes * 10 * (goalMet ? 1.2 : 1));
-  const stars = minutes + (goalMet ? 5 : 0);
+  const stars = starsFor(minutes, goalMet, subject);
+  const prio = isPriority(subject);
   p.stars += stars;
+  const before = todayStats().minutes;
   S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at: Date.now() });
+  const target = targetFor(today());
+  if (target && before < target && before + minutes >= target) {
+    p.stars += TARGET_BONUS.stars;
+    events.push({ type: 'target', target, stars: TARGET_BONUS.stars });
+  }
 
   addXp(xp, events);
   const match = CHAR_BY_ID[partner].el === SUBJECT_BY_ID[subject].el;
@@ -207,7 +233,26 @@ function finishSession(subject, minutes, goal, goalMet) {
 
   S.active = null;
   save();
-  return { subject, minutes, goal, goalMet, xp, stars, cexp, match, partner, xpBefore, charBefore, battle, events };
+  return { subject, minutes, goal, goalMet, xp, stars, prio, cexp, match, partner, xpBefore, charBefore, battle, events };
+}
+function starsFor(minutes, goalMet, subject) {
+  const base = minutes + (goalMet ? 5 : 0);
+  return isPriority(subject) ? Math.round(base * PRIORITY_STAR_RATE) : base;
+}
+
+// ---------- 保護者の設定 ----------
+function isWeekend(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  return dow === 0 || dow === 6;
+}
+function targetFor(key) { return S.parent.target[isWeekend(key) ? 'weekend' : 'weekday'] || 0; }
+function isPriority(subject) { return S.parent.priority.includes(subject); }
+// 保護者ページから保存する。別のタブでゲームが開いていても上書きしないよう、最新のデータに parent だけ書き込む
+function saveParent(parent) {
+  S = load();
+  S.parent = parent;
+  save();
 }
 
 // ---------- ガチャ ----------
