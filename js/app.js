@@ -973,7 +973,10 @@ async function startCloud() {
   if (S.cloud.lost) { delete S.cloud.lost; }
   save();   // 起動時の状態を送る
 }
-window.addEventListener('cloud-ready', startCloud);
+window.addEventListener('cloud-ready', () => {
+  if (current.name === 'onboard' && !current.params.step && cloudOn() && !$('#name').value) render();   // 「前の記録を引き継ぐ」を出す
+  startCloud();
+});
 
 // ---------- 起動 ----------
 document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });

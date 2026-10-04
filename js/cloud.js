@@ -6,15 +6,6 @@
 //   families/{保護者のuid}            { parentUid, childUid, parent: { target, priority }, pairCode, linkedAt }
 //   families/{保護者のuid}/state/child { save: ゲームの保存データ(JSON文字列), updatedAt }
 //   pairCodes/{6桁}                  { parentUid, expiresAt }   … 10分で期限切れ
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import {
-  getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
-  signInWithCredential, GoogleAuthProvider, signOut,
-} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import {
-  getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
-} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
-
 const CODE_MINUTES = 10;
 // ?emulator=1 で開くと、手元の Firebase エミュレーターにつなぐ（開発・テスト用）
 const useEmulator = new URLSearchParams(location.search).has('emulator');
@@ -23,6 +14,15 @@ const config = useEmulator ? { apiKey: 'demo-key', authDomain: 'demo-manabi.fire
 
 // 保護者ページとゲームでログイン状態を分ける（同じ端末で保護者がログインしても、子どもの連携が切れないように）
 const role = location.pathname.endsWith('parent.html') ? 'parent' : 'child';
+// SDK は連携を使うときだけ読み込む
+const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
+const [{ initializeApp }, {
+  getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
+  signInWithCredential, GoogleAuthProvider, signOut,
+}, {
+  getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
+}] = config ? await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => import(SDK + f))) : [{}, {}, {}];
+
 let auth, db;
 if (config) {
   const app = initializeApp(config, role);
@@ -62,13 +62,14 @@ async function linkChild(code) {
 // 連携済みの端末で、保存のたびにクラウドへ送り、保護者の設定を受け取る
 async function startChild(pid, onParent) {
   stopChild();
-  const user = await authReady;
+  await authReady;
+  const user = auth.currentUser;
   if (!user) return false;   // ブラウザのデータが消えて匿名ログインが切れた → 連携し直しが必要
   childPid = pid;
   unwatchParent = onSnapshot(famRef(pid), s => {
     if (!s.exists() || s.data().childUid !== user.uid) { onParent(null, 'unlinked'); return; }
     onParent(s.data().parent || null);
-  }, () => onParent(null, 'error'));
+  }, e => onParent(null, e.code === 'permission-denied' ? 'unlinked' : 'error'));   // 別の端末に連携し直された
   return true;
 }
 function stopChild() {

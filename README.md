@@ -36,7 +36,22 @@ https://kokitezuka1.github.io/manabi-quest/parent.html （ゲームの ⚙️設
 - 1日の目標学習時間（平日／土日）と、優先して学習させたい教科を設定
 - 4桁の暗証番号（PIN）でロックできる
 
-データはブラウザ内（localStorage）にあるため、お子さまがゲームで使っている端末・ブラウザで開く必要がある。
+### 保護者と子どもの連携（Firebase）
+
+`js/firebase-config.js` に Firebase の設定を書くと、アカウントで連携できるようになる（未設定なら、データはブラウザ内だけにあり、お子さまがゲームで使っている端末・ブラウザで保護者ページを開く必要がある）。
+
+1. 保護者は保護者ページで Google アカウントにログインし、6桁の連携コード（10分有効）を出す
+2. お子さまはゲームの ⚙️設定 →「保護者と連携する」でコードを入力（お子さまのアカウントは不要。匿名ログイン）
+3. 以後、勉強の記録は自動でクラウドに保存され、保護者はどの端末からでも確認・設定できる。目標時間と優先教科はゲームに自動で届く
+4. 端末を買い替えたら、新しいコードを出して新しい端末で入力すると記録を引き継げる（前の端末の連携は外れる）
+
+Firebase の準備：
+1. [Firebase コンソール](https://console.firebase.google.com/)でプロジェクトを作る
+2. Authentication → ログイン方法で「Google」と「匿名」を有効にし、設定 → 承認済みドメインに `kokitezuka1.github.io` を追加
+3. Firestore Database を作成（本番環境モード、ロケーションは asia-northeast1 など）し、ルールに `firestore.rules` の内容を貼って公開
+4. プロジェクトの設定 → マイアプリ → ウェブアプリを追加し、表示された `firebaseConfig` を `js/firebase-config.js` に貼る
+
+開発時は `npx firebase emulators:start --project demo-manabi` でエミュレーターを起動し、URL に `?emulator=1` をつけて開くと手元で試せる。
 
 ## ファイル
 
@@ -47,10 +62,11 @@ https://kokitezuka1.github.io/manabi-quest/parent.html （ゲームの ⚙️設
 - `js/fx.js` … 効果音（WebAudio で合成、音声ファイルなし）・紙吹雪
 - `js/app.js` … 画面描画
 - `parent.html` / `js/parent.js` / `css/parent.css` … 保護者ページ
+- `js/cloud.js` / `js/firebase-config.js` / `firestore.rules` … 保護者と子どもの連携（Firebase）
 
 ## 更新時の注意
 
-JS/CSS を変えたら、`index.html` の `?v=5` の数字を上げる（ブラウザの古いキャッシュを使わせないため）。
+JS/CSS を変えたら、`index.html` の `?v=6` の数字を上げる（ブラウザの古いキャッシュを使わせないため）。
 
 ## クレジット
 
