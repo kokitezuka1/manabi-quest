@@ -1,0 +1,44 @@
+rules_version = '2';
+// 学びクエスト：保護者と子どもの連携
+// Firebase コンソール → Firestore Database → ルール に、この内容を貼り付けて「公開」する。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function famPath(pid) { return /databases/$(database)/documents/families/$(pid); }
+    function isChildOf(pid) { return exists(famPath(pid)) && get(famPath(pid)).data.childUid == request.auth.uid; }
+    function validCode(code, pid) {
+      let p = /databases/$(database)/documents/pairCodes/$(code);
+      return code is string && exists(p) && get(p).data.parentUid == pid && get(p).data.expiresAt > request.time;
+    }
+
+    // 家族（保護者1人と子ども1人）
+    match /families/{pid} {
+      allow get: if signedIn() && (request.auth.uid == pid || resource.data.childUid == request.auth.uid);
+      allow create: if signedIn() && request.auth.uid == pid && request.resource.data.parentUid == pid;
+      allow update: if signedIn() && (
+        // 保護者：自分の家族の設定を変える
+        (request.auth.uid == pid && request.resource.data.parentUid == pid)
+        // 子ども：有効な連携コードを持っていれば、自分を子どもとして登録できる
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['childUid', 'pairCode', 'linkedAt'])
+            && request.resource.data.childUid == request.auth.uid
+            && validCode(request.resource.data.pairCode, pid))
+      );
+
+      // 子どものゲームの保存データ（子どもだけが書き、保護者は読むだけ）
+      match /state/{docId} {
+        allow get: if signedIn() && (request.auth.uid == pid || isChildOf(pid));
+        allow write: if signedIn() && isChildOf(pid)
+          && request.resource.data.save is string && request.resource.data.save.size() < 900000;
+      }
+    }
+
+    // 連携コード（保護者が発行、10分で期限切れ）。番号を知っている人だけが読める（一覧は取れない）
+    match /pairCodes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && code.matches('[0-9]{6}')
+        && request.resource.data.parentUid == request.auth.uid
+        && request.resource.data.expiresAt < request.time + duration.value(15, 'm');
+      allow delete: if signedIn() && resource.data.parentUid == request.auth.uid;
+    }
+  }
+}

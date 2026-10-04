@@ -26,6 +26,7 @@ function defaultState() {
     settings: { sound: true, lastGoal: 15, lastSubject: null },
     active: null,              // タイマー実行中の情報
     parent: defaultParent(),   // 保護者ページで決める目標時間と優先教科
+    cloud: null,               // 保護者と連携中なら { pid: 保護者のID }
   };
 }
 function defaultParent() {
@@ -71,11 +72,13 @@ function migrate(st) {
 }
 function save() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 容量オーバーなど */ }
+  if (S.cloud && window.Cloud) window.Cloud.pushSave(S);   // 保護者と連携中ならクラウドにも送る
 }
 
 // ---------- プレイヤー ----------
 function startGame(name, starterId) {
-  S = defaultState();
+  const keep = { parent: S.parent, cloud: S.cloud };   // 連携と保護者の設定は引き継ぐ
+  S = { ...defaultState(), ...keep };
   S.player = { name, level: 1, xp: 0, stars: 0, tickets: 1, createdAt: Date.now() };
   S.chars[starterId] = { level: 1, exp: 0, count: 1 };
   S.partner = starterId;

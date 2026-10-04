@@ -1,6 +1,8 @@
 'use strict';
 // ===== 保護者ページ =====
-// ゲームと同じ端末・ブラウザの保存データ（localStorage）を読み、目標時間と優先教科だけを書き込む。
+// 連携（Firebase）が使えるとき：保護者は Google アカウントでログインし、子どもの端末とコードで連携する。
+//   子どもの記録はクラウドから読み、目標時間と優先教科をクラウドに書き込む。
+// 使えないとき：ゲームと同じ端末・ブラウザの保存データ（localStorage）を読み書きする。
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -10,6 +12,8 @@ const UNLOCK_KEY = 'manabi-quest-parent-unlocked';
 
 let day = today();          // 表示している日
 let draft = null;           // 編集中の設定（保存するまで反映しない）
+let mode = null;            // 'cloud' | 'local'（決まるまで null）
+const cloud = { user: null, fam: null, state: null, code: null, offs: [] };
 
 function parseKey(key) { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d); }
 function dayLabel(key) { const d = parseKey(key); return `${d.getMonth() + 1}月${d.getDate()}日（${DOWS[d.getDay()]}）`; }
@@ -32,9 +36,11 @@ function isUnlocked() {
 }
 
 function render() {
+  const root = $('#root');
+  if (!mode) { root.innerHTML = `${headerHtml()}<section class="card"><p class="muted">読み込み中…</p></section>`; return; }
+  if (mode === 'cloud') { renderCloud(root); return; }
   S = load();
   if (!draft) draft = freshDraft();
-  const root = $('#root');
   if (!isUnlocked()) { renderLock(root); return; }
   if (!S.player) {
     root.innerHTML = `${headerHtml()}<section class="card empty">
@@ -46,6 +52,121 @@ function render() {
   }
   root.innerHTML = headerHtml() + dayHtml() + weekHtml() + settingsHtml() + pinHtml() + footHtml();
   bind();
+}
+
+// ---------- クラウド連携モード ----------
+function renderCloud(root) {
+  if (cloud.user === undefined) { root.innerHTML = `${headerHtml()}<section class="card"><p class="muted">読み込み中…</p></section>`; return; }
+  if (!cloud.user) {
+    S = defaultState();
+    root.innerHTML = `${headerHtml()}<section class="card login">
+      <h2>ログイン</h2>
+      <p>お子さまの勉強の記録を見たり、目標時間を決めたりするには、保護者の Google アカウントでログインしてください。</p>
+      <button class="btn google" id="login">Google でログイン</button>
+      <p class="note">お子さまにはアカウントは不要です。ログイン後に表示される6桁のコードを、お子さまのゲーム画面で入力して連携します。</p>
+    </section>${footHtml()}`;
+    $('#login').onclick = async () => {
+      try { await Cloud.signInParent(); } catch (e) { if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') toast('ログインできませんでした（' + (e.code || e.message) + '）'); }
+    };
+    return;
+  }
+  S = cloudState();
+  if (!draft) draft = freshDraft();
+  if (!cloud.fam || !cloud.fam.childUid) {
+    root.innerHTML = `${headerHtml()}<section class="card pair">
+      <h2>お子さまの端末と連携</h2>
+      <ol class="steps">
+        <li>下のボタンで6桁のコードを出します（10分間有効）</li>
+        <li>お子さまの端末でゲームを開き、⚙️設定 →「保護者と連携する」を押します<br><small>まだゲームを始めていない端末なら、最初の画面の「おうちの人と連携して、前の記録を引き継ぐ」</small></li>
+        <li>コードを入力すると連携完了。この画面が自動で切り替わります</li>
+      </ol>
+      ${codeHtml()}
+    </section>${accountHtml(false)}${footHtml()}`;
+    bindCloud();
+    return;
+  }
+  if (!S.player) {
+    root.innerHTML = `${headerHtml()}<section class="card empty">
+      <h2>連携しました</h2><p>お子さまがゲームで勉強を始めると、ここに記録が表示されます。</p></section>${accountHtml(true)}${footHtml()}`;
+    bindCloud();
+    return;
+  }
+  root.innerHTML = headerHtml() + dayHtml() + weekHtml() + settingsHtml() + accountHtml(true) + footHtml();
+  bind();
+  bindCloud();
+}
+
+// クラウドの記録に、保護者の設定（目標時間・優先教科）を重ねたもの
+function cloudState() {
+  let st = defaultState();
+  try { if (cloud.state && cloud.state.save) st = normalize(JSON.parse(cloud.state.save)); } catch (e) { /* 壊れたデータは無視 */ }
+  const p = (cloud.fam && cloud.fam.parent) || {};
+  st.parent = { ...defaultParent(), target: { ...defaultParent().target, ...(p.target || {}) }, priority: p.priority || [] };
+  return st;
+}
+
+function codeHtml() {
+  const c = cloud.code;
+  if (c && c.expiresAt > Date.now()) {
+    const left = Math.ceil((c.expiresAt - Date.now()) / 60000);
+    return `<div class="code-box"><small>連携コード</small><b>${c.code.slice(0, 3)} ${c.code.slice(3)}</b><small>あと約${left}分有効</small></div>`;
+  }
+  return `<button class="btn" id="newcode">${c ? 'コードを出し直す' : '連携コードを出す'}</button>`;
+}
+
+function accountHtml(linked) {
+  const u = cloud.user;
+  return `<section class="card">
+    <h2>アカウント</h2>
+    <p class="note">ログイン中：${esc(u.email || u.displayName || '')}</p>
+    ${linked ? `<p class="note">お子さまの端末と連携中です。${cloud.state && cloud.state.updatedAt ? `最後に記録が届いた時刻：${fmtStamp(cloud.state.updatedAt)}` : ''}</p>
+      <details class="relink"><summary>端末を買い替えた・連携し直したいとき</summary>
+        <p class="note">新しいコードを出し、新しい端末で入力してください。前の端末の連携は自動で外れ、記録はそのまま引き継げます。</p>
+        ${codeHtml()}
+      </details>` : ''}
+    <div class="save-row"><button class="btn ghost" id="logout">ログアウト</button></div>
+  </section>`;
+}
+function fmtStamp(ts) {
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d)}`;
+}
+
+function bindCloud() {
+  if ($('#newcode')) $('#newcode').onclick = async e => {
+    e.target.disabled = true;
+    try { cloud.code = await Cloud.createPairCode(cloud.user.uid); render(); }
+    catch (err) { toast('コードを出せませんでした'); e.target.disabled = false; }
+  };
+  if (cloud.code && $('.relink')) $('.relink').open = true;
+  $('#logout').onclick = async () => { if (confirm('ログアウトしますか？')) await Cloud.signOut(); };
+}
+
+function startCloudMode() {
+  mode = 'cloud';
+  cloud.user = undefined;
+  render();
+  Cloud.onParentAuth(async user => {
+    cloud.offs.forEach(f => f()); cloud.offs = [];
+    cloud.fam = cloud.state = cloud.code = null;
+    draft = null;
+    cloud.user = user;
+    if (!user) { render(); return; }
+    try { await Cloud.ensureFamily(user.uid); } catch (e) { toast('データを読み込めませんでした'); }
+    let prevChild;   // 最初の読み込みでは通知しない
+    cloud.offs.push(Cloud.watchFamily(user.uid, fam => {
+      const child = (fam && fam.childUid) || '';
+      if (prevChild !== undefined && child && child !== prevChild) {
+        if (cloud.code) Cloud.deletePairCode(cloud.code.code);
+        cloud.code = null;
+        toast('お子さまの端末と連携しました');
+      }
+      prevChild = child;
+      cloud.fam = fam;
+      render();
+    }));
+    cloud.offs.push(Cloud.watchChildState(user.uid, st => { cloud.state = st; render(); }));
+  });
 }
 
 function headerHtml() {
@@ -185,7 +306,8 @@ function pinHtml() {
 
 function footHtml() {
   return `<footer class="foot">
-    <p>データはこの端末のブラウザ内にだけ保存されています。お子さまがゲームで使っている端末・ブラウザで、このページを開いてください。</p>
+    <p>${mode === 'cloud' ? 'どの端末からでも、同じ Google アカウントでログインすれば確認・設定できます。'
+      : 'データはこの端末のブラウザ内にだけ保存されています。お子さまがゲームで使っている端末・ブラウザで、このページを開いてください。'}</p>
     <a href="index.html">← ゲーム画面へ</a>
   </footer>`;
 }
@@ -206,13 +328,20 @@ function bind() {
     render();
   });
   if ($('#revert')) $('#revert').onclick = () => { draft = freshDraft(); render(); };
-  $('#save').onclick = () => {
-    saveParent({ ...S.parent, target: { ...draft.target }, priority: [...draft.priority] });
-    draft = freshDraft();
+  $('#save').onclick = async () => {
+    const next = { target: { ...draft.target }, priority: [...draft.priority] };
+    if (mode === 'cloud') {
+      try { await Cloud.saveParentSettings(cloud.user.uid, next); } catch (e) { toast('保存できませんでした'); return; }
+      draft = null;
+    } else {
+      saveParent({ ...S.parent, ...next });
+      draft = freshDraft();
+    }
     render();
     toast('保存しました。お子さまの画面に反映されます');
   };
 
+  if (!$('#setpin')) return;
   $('#setpin').onclick = () => {
     const v = $('#newpin').value.trim();
     if (!/^\d{4}$/.test(v)) { toast('4桁の数字を入力してください'); $('#newpin').focus(); return; }
@@ -252,7 +381,20 @@ function renderLock(root) {
 }
 
 // ゲーム（別のタブ）で記録が増えたら表示を更新する。編集中の設定はそのまま残す
-window.addEventListener('storage', e => { if (e.key === SAVE_KEY) render(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
-setInterval(() => { if (S.active && isUnlocked() && day === today() && document.activeElement?.tagName !== 'SELECT') render(); }, 30000);
+window.addEventListener('storage', e => { if (e.key === SAVE_KEY && mode === 'local') render(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode === 'local') render(); });
+setInterval(() => {
+  if (document.activeElement?.tagName === 'SELECT') return;
+  if (mode === 'cloud' && cloud.code) render();   // コードの残り時間
+  else if (S.active && day === today() && (mode === 'cloud' || isUnlocked())) render();
+}, 30000);
+
+// 連携（Firebase）が使えるかどうかで動きを切り替える
+function decideMode() {
+  if (mode) return;
+  if (window.Cloud && Cloud.enabled) startCloudMode();
+  else { mode = 'local'; render(); }
+}
+window.addEventListener('cloud-ready', decideMode);
+setTimeout(decideMode, 5000);   // 読み込みに失敗したときは、この端末のデータで表示
 render();

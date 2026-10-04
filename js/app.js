@@ -172,7 +172,9 @@ SCREENS.onboard = (el, params) => {
       <p class="lead">勉強した時間で仲間を育て、<br>ボスを倒して世界を救え！</p>
       <div class="card"><label class="lbl">プレイヤー名</label>
       <input id="name" class="input" maxlength="10" placeholder="名前を入力" autocomplete="off"></div>
-      <button class="btn big gold" id="next">次へ ▶</button></div>`;
+      <button class="btn big gold" id="next">次へ ▶</button>
+      ${cloudOn() && !S.cloud ? '<button class="link small" id="restore">おうちの人と連携して、前の記録を引き継ぐ</button>' : ''}</div>`;
+    if ($('#restore')) $('#restore').onclick = () => { Sound.tap(); openLinkModal(); };
     const inp = $('#name');
     $('#next').onclick = () => {
       const name = inp.value.trim();
@@ -845,9 +847,14 @@ function openSettings() {
     <label class="row-check"><input type="checkbox" id="setsound" ${S.settings.sound ? 'checked' : ''}> 効果音を鳴らす</label>
     <div class="parent">
       <h3>保護者の方へ</h3>
-      <p class="small">データはこのブラウザ内にのみ保存されます。料金は一切かかりません。ガチャは勉強時間でためた⭐と🎫だけで引けます。1回の記録は最大${MAX_SESSION_MIN}分です。</p>
-      <a class="btn mini wide parent-link" href="parent.html">👪 保護者ページを開く</a>
-      <p class="small">勉強時間の確認や、1日の目標時間・優先する教科の設定ができます。</p>
+      <p class="small">${S.cloud ? 'データはこのブラウザと、保護者のアカウントに保存されます。' : 'データはこのブラウザ内にのみ保存されます。'}料金は一切かかりません。ガチャは勉強時間でためた⭐と🎫だけで引けます。1回の記録は最大${MAX_SESSION_MIN}分です。</p>
+      ${cloudOn() ? (S.cloud
+        ? `<p class="cloud-state ${S.cloud.lost ? 'lost' : ''}">${S.cloud.lost ? '⚠️ 連携が切れています。保護者ページで新しいコードを出して、連携し直してください。' : '✅ 保護者と連携中（記録は自動で保護者に届きます）'}</p>
+           <div class="m-btns">${S.cloud.lost ? '<button class="btn mini" id="link">連携し直す</button>' : ''}<button class="btn ghost mini" id="unlink">連携を解除</button></div>`
+        : `<button class="btn mini wide parent-link" id="link">🔗 保護者と連携する</button>
+           <p class="small">保護者ページ（${location.host}${location.pathname.replace(/[^/]*$/, '')}parent.html）で Google アカウントにログインし、表示された6桁のコードを入力します。</p>`)
+      : `<a class="btn mini wide parent-link" href="parent.html">👪 保護者ページを開く</a>
+      <p class="small">勉強時間の確認や、1日の目標時間・優先する教科の設定ができます。</p>`}
       <div class="m-btns"><button class="btn ghost mini" id="export">データをダウンロード</button><button class="btn ghost mini" id="import">データを読み込む</button></div>
       <input type="file" id="importfile" accept="application/json" hidden>
       <button class="link danger" id="reset">最初からやり直す</button>
@@ -855,6 +862,11 @@ function openSettings() {
     <p class="credit">キャラクター・敵アイコン：<a href="https://game-icons.net/" target="_blank" rel="noopener">game-icons.net</a>（Lorc, Delapouite ほか / CC BY 3.0）<br>地図データ：Natural Earth</p>
     <button class="btn gold wide" id="setclose">閉じる</button>`, { dismiss: false });
   const el = m.el;
+  if ($('#link', el)) $('#link', el).onclick = () => { m.close(); openLinkModal(); };
+  if ($('#unlink', el)) $('#unlink', el).onclick = () => {
+    if (!confirm('保護者との連携を解除しますか？（この端末の記録は残ります）')) return;
+    Cloud.stopChild(); S.cloud = null; save(); m.close(); render();
+  };
   $('#setclose', el).onclick = () => {
     const name = $('#setname', el).value.trim();
     if (name) S.player.name = name;
@@ -893,6 +905,75 @@ window.addEventListener('storage', e => {
   try { S.parent = normalize(JSON.parse(e.newValue)).parent; } catch (err) { return; }
   if (['home', 'setup'].includes(current.name)) render();
 });
+
+// ---------- 保護者との連携（Firebase） ----------
+function cloudOn() { return !!(window.Cloud && Cloud.enabled); }
+
+async function openLinkModal() {
+  const m = openModal(`<h2>🔗 保護者と連携</h2>
+    <p class="small">保護者ページに表示された6桁のコードを入力してね</p>
+    <input id="lcode" class="input code-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="000000">
+    <p class="small err" id="lerr"></p>
+    <div class="m-btns"><button class="btn ghost" data-v="close">やめる</button><button class="btn gold" id="lgo">連携する</button></div>`, { dismiss: true });
+  const inp = $('#lcode', m.el), btn = $('#lgo', m.el);
+  inp.focus();
+  btn.onclick = async () => {
+    const code = inp.value.trim();
+    if (!/^\d{6}$/.test(code)) { $('#lerr', m.el).textContent = '6桁の数字を入力してください'; return; }
+    btn.disabled = true; btn.textContent = '連携中…';
+    try {
+      const { pid, cloudSave } = await Cloud.linkChild(code);
+      m.close();
+      await finishLink(pid, cloudSave);
+    } catch (e) {
+      $('#lerr', m.el).textContent = e.message && /[ぁ-ん]/.test(e.message) ? e.message : '連携できませんでした。コードを確かめてください';
+      btn.disabled = false; btn.textContent = '連携する';
+    }
+  };
+  inp.onkeydown = e => { if (e.key === 'Enter') btn.click(); };
+}
+
+async function finishLink(pid, cloudSave) {
+  let useCloud = false;
+  if (cloudSave) {
+    const c = normalize(JSON.parse(cloudSave));
+    if (c.player && !S.player) useCloud = true;
+    else if (c.player && S.player) {
+      const v = await modal(`<h2>記録が2つあります</h2>
+        <p class="small">どちらの記録で続けますか？ 選ばなかった方は消えます。</p>
+        <div class="m-btns col"><button class="btn ghost" data-v="local">この端末の記録<br><small>${esc(S.player.name)} Lv.${S.player.level}</small></button>
+        <button class="btn gold" data-v="cloud">保護者に届いている記録<br><small>${esc(c.player.name)} Lv.${c.player.level}</small></button></div>`);
+      useCloud = v === 'cloud';
+    }
+    if (useCloud) S = c;
+  }
+  S.cloud = { pid };
+  save();
+  Cloud.flush();
+  startCloud();
+  Sound.levelup(); FX.confetti(80);
+  await modal(`<div class="m-emo gold">${icon('linked-rings')}</div><h2>連携できた！</h2>
+    <p>勉強の記録がおうちの人に届くようになったよ</p><button class="btn gold wide" data-v="ok">OK</button>`);
+  go(!S.player ? 'onboard' : S.active ? 'timer' : 'home');
+}
+
+// 連携中なら、保護者の設定を受け取り、記録を送る
+async function startCloud() {
+  if (!cloudOn() || !S.cloud) return;
+  const ok = await Cloud.startChild(S.cloud.pid, (parent, status) => {
+    if (status === 'unlinked') { S.cloud = { ...S.cloud, lost: true }; Cloud.stopChild(); save(); return; }
+    if (!parent) return;
+    const next = { ...S.parent, target: { ...S.parent.target, ...(parent.target || {}) }, priority: parent.priority || [] };
+    if (JSON.stringify(next) === JSON.stringify(S.parent)) return;
+    S.parent = next;
+    save();
+    if (['home', 'setup'].includes(current.name)) render();
+  });
+  if (!ok) { S.cloud = { ...S.cloud, lost: true }; save(); return; }
+  if (S.cloud.lost) { delete S.cloud.lost; }
+  save();   // 起動時の状態を送る
+}
+window.addEventListener('cloud-ready', startCloud);
 
 // ---------- 起動 ----------
 document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });

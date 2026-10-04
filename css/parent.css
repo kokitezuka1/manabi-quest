@@ -125,3 +125,15 @@ select, input { font: inherit; color: var(--ink); background: var(--card); borde
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 .shake { animation: shake .35s; }
 @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+/* クラウド連携 */
+.login, .pair { display: grid; gap: 10px; }
+.login p, .pair p { margin: 0; }
+.btn.google { justify-self: start; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; font-size: 14px; }
+.steps small { color: var(--sub); }
+.code-box { display: grid; justify-items: center; gap: 2px; background: var(--accent-soft); border-radius: 12px; padding: 14px; margin-top: 6px; }
+.code-box b { font-size: 40px; letter-spacing: .15em; font-variant-numeric: tabular-nums; }
+.code-box small { color: var(--sub); }
+.relink { margin-top: 10px; font-size: 14px; }
+.relink summary { cursor: pointer; color: var(--accent); }
