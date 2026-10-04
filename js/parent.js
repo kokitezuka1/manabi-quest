@@ -50,9 +50,10 @@ function render() {
       <a class="btn" href="index.html">ゲームを開く</a></section>`;
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + pinHtml() + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + pinHtml() + footHtml();
   bind();
   bindReview();
+  bindReset();
 }
 
 // ---------- クラウド連携モード ----------
@@ -95,10 +96,11 @@ function renderCloud(root) {
     bindCloud();
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + accountHtml(true) + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + accountHtml(true) + footHtml();
   bind();
   bindCloud();
   bindReview();
+  bindReset();
 }
 
 // クラウドの記録に、保護者の設定（目標時間・優先教科）を重ねたもの
@@ -265,6 +267,61 @@ function pruneReviews() {
   const st = cloudState();
   const done = Object.keys(sent).filter(at => { const s = st.sessions.find(x => String(x.at) === at); return !s || s.review !== 'pending'; });
   if (done.length) Cloud.pruneReviews(cloud.user.uid, done).catch(() => {});
+}
+
+// ---------- 仲間のリセット ----------
+let resetOpen = false;   // 開いたまま再描画されても閉じないように
+function resetHtml() {
+  const owned = Object.keys(S.chars);
+  const byRank = RANKS.map(r => [r, owned.filter(id => CHAR_BY_ID[id].r === r).length]).filter(([, n]) => n);
+  const plan = planReset(S);
+  const now = stageInfo(S.stage.i), to = stageInfo(plan.stage);
+  const contracts = CONTRACT_ORDER.filter(k => S.contracts[k] > 0).map(k => `${CONTRACTS[k].name}×${S.contracts[k]}`).join('、');
+  const fam = mode === 'cloud' && cloud.fam && cloud.fam.reset;
+  const waiting = fam && !(S.lastReset && S.lastReset.id === fam.id);
+  const p = S.player;
+  return `<section class="card reset">
+    <details id="resetbox" ${resetOpen ? 'open' : ''}><summary><h2>仲間のリセット</h2></summary>
+    <p class="note">お子さまの仲間を、Dランクの仲間1体（Lv1）だけにして、やり直してもらいます。元には戻せません。</p>
+    ${waiting ? '<p class="alert">リセットを送りました。お子さまがゲームを開くと反映されます。</p>' : ''}
+    <h3>今の状態</h3>
+    <ul class="reset-now">
+      <li>仲間：${owned.length}体（${byRank.map(([r, n]) => `${RARITY[r].label} ${n}`).join('・')}）</li>
+      <li>パートナー：${S.partner ? `${charName(S.partner)}（${RARITY[CHAR_BY_ID[S.partner].r].label}ランク Lv.${charLevel(S.partner)}・強さ ${charPower(S.partner)}）` : 'なし'}</li>
+      <li>冒険：${now.region.flag} ${now.city.name}（${S.stage.i + 1}番目の街）</li>
+      <li>⭐ ${p.stars}・🎫 ${p.tickets}${contracts ? `・${contracts}` : ''}</li>
+    </ul>
+    <h3>リセットすると</h3>
+    <ul class="reset-now">
+      <li>仲間：<b>${CHAR_BY_ID[plan.id].names[0]}</b>（Dランク Lv.1・強さ ${RARITY[1].base + RARITY[1].perLv}）だけになります</li>
+      <li>冒険：<b>${to.region.flag} ${to.city.name}（${plan.stage + 1}番目の街）</b>${plan.stage < S.stage.i ? 'まで戻ります（Dランクで倒せる強さの街）' : 'のまま'}</li>
+      <li>一度クリアした街を倒し直しても、チケットと契約書は出ません（⭐は出ます）</li>
+      <li>レベル・勉強の記録・連続日数はそのままです</li>
+    </ul>
+    <label class="check"><input type="checkbox" id="rs-contracts" ${contracts ? 'checked' : 'disabled'}> 持っている契約書も消す${contracts ? '' : '（持っていません）'}</label>
+    <label class="check"><input type="checkbox" id="rs-stars"> ⭐とチケットも0にする</label>
+    <p class="note">⭐や契約書が残っていると、すぐにガチャで強い仲間を引き直せます。</p>
+    <div class="save-row"><button class="btn danger" id="rs-go" ${waiting ? 'disabled' : ''}>リセットする</button></div>
+    </details>
+  </section>`;
+}
+function bindReset() {
+  const box = $('#resetbox');
+  if (!box) return;
+  box.ontoggle = () => { resetOpen = box.open; };
+  $('#rs-go').onclick = async () => {
+    const cmd = { id: Date.now(), contracts: $('#rs-contracts').checked, stars: $('#rs-stars').checked };
+    if (!confirm(`${S.player.name}さんの仲間をリセットしますか？\nDランクの仲間1体だけになり、元には戻せません。`)) return;
+    if (mode === 'cloud') {
+      try { await Cloud.sendReset(cloud.user.uid, cmd); } catch (e) { toast('送れませんでした'); return; }
+      toast('リセットを送りました');
+    } else {
+      S = load();
+      applyReset(cmd);
+      toast('リセットしました');
+    }
+    render();
+  };
 }
 
 // ---------- その日の勉強 ----------

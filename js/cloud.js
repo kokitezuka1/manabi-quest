@@ -5,7 +5,8 @@
 //
 // データの形（Firestore）
 //   families/{保護者のuid}            { parentUid, childUids: [子どもの端末のuid…], parent: { target, priority }, pairCode, linkedAt,
-//                                       reviews: { [記録のat]: { st: 'ok' | 'ng', min } } … 保護者の承認。子どもの端末が⭐に反映したら消す }
+//                                       reviews: { [記録のat]: { st: 'ok' | 'ng', min } } … 保護者の承認。子どもの端末が⭐に反映したら消す
+//                                       reset: { id, contracts, stars } … 保護者が押した「仲間のリセット」。子どもの端末は id ごとに1回だけ当てはめる }
 //                                     （古い版では childUid に1台だけ入っている）
 //   families/{保護者のuid}/state/child { save: ゲームの保存データ(JSON文字列), rev: 更新番号, updatedAt, by: 書いた端末 }
 //   pairCodes/{6桁}                  { parentUid, expiresAt }   … 10分で期限切れ
@@ -66,7 +67,7 @@ async function linkChild(code) {
 }
 
 // 連携中の端末で、保護者の設定とほかの端末の記録を受け取る
-async function startChild(pid, { onParent, onReviews, onRemote, onUnlinked }) {
+async function startChild(pid, { onParent, onReviews, onReset, onRemote, onUnlinked }) {
   stopChild();
   await authReady;
   const user = auth.currentUser;
@@ -76,6 +77,7 @@ async function startChild(pid, { onParent, onReviews, onRemote, onUnlinked }) {
     if (!hasChild(s.exists() ? s.data() : null, user.uid)) { onUnlinked(); return; }
     onParent(s.data().parent || null);
     onReviews(s.data().reviews || {});
+    onReset(s.data().reset || null);
   }, denied));
   offs.push(onSnapshot(stateRef(pid), s => {
     if (!s.exists() || s.metadata.hasPendingWrites) return;
@@ -149,6 +151,8 @@ function saveParentSettings(uid, parent) { return updateDoc(famRef(uid), { paren
 function saveReviews(uid, decisions) {
   return updateDoc(famRef(uid), Object.fromEntries(Object.entries(decisions).map(([at, d]) => ['reviews.' + at, d])));
 }
+// 仲間のリセットを子どもの端末に送る
+function sendReset(uid, cmd) { return updateDoc(famRef(uid), { reset: cmd }); }
 // 子どもの端末に反映された承認を消す
 function pruneReviews(uid, ats) {
   return updateDoc(famRef(uid), Object.fromEntries(ats.map(at => ['reviews.' + at, deleteField()])));
@@ -161,7 +165,7 @@ window.Cloud = {
   linkChild, startChild, stopChild, commit, leave,
   // 保護者
   signInParent, testSignIn, onParentAuth, ensureFamily, createPairCode, deletePairCode, watchFamily, watchChildState,
-  saveParentSettings, saveReviews, pruneReviews, unlinkAll, signOut: () => signOut(auth),
+  saveParentSettings, saveReviews, pruneReviews, sendReset, unlinkAll, signOut: () => signOut(auth),
   CODE_MINUTES,
 };
 window.dispatchEvent(new Event('cloud-ready'));

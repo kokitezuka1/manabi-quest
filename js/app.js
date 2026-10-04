@@ -203,6 +203,31 @@ async function showReviewNews() {
   renderTopbar(); renderNav();
   if (current.name === 'home') render();
 }
+// ---------- 仲間のリセット ----------
+async function showResetNews() {
+  const n = S.resetNews;
+  if (showingNews || !n || $('.modal-back') || $('.g-overlay') || current.name !== 'home') return;
+  showingNews = true;
+  S.resetNews = null;
+  save();
+  const st = stageInfo(n.stage);
+  await modal(`<div class="m-av bounce">${avatar(n.id, { size: 110 })}</div>
+    <h2>おうちの人が仲間をリセットしたよ</h2>
+    <p><b>${charName(n.id)}</b>と一緒に、もう一度強くなろう！</p>
+    <p class="small">冒険は ${st.region.flag} ${st.city.name} から。ガチャで新しい仲間を集めよう</p>
+    <button class="btn gold wide" data-v="ok">がんばる！</button>`);
+  showingNews = false;
+  render();
+}
+// リセットが届いたら、仲間の画面などを開き直す（勉強中・結果の画面はそのまま）
+function afterReset() {
+  renderTopbar(); renderNav();
+  if (['timer', 'result', 'setup'].includes(current.name)) return;
+  if ($('.g-overlay')) return;
+  $$('.modal-back').forEach(m => m.remove());
+  go('home');
+}
+
 // 承認が届いたら、⭐の表示を更新してお知らせする
 function afterReviews() {
   renderTopbar(); renderNav();
@@ -319,7 +344,8 @@ SCREENS.home = el => {
   $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
-  if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
+  if (S.resetNews) setTimeout(showResetNews, 300);
+  else if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
     if (!b) return;
@@ -1028,6 +1054,7 @@ window.addEventListener('storage', e => {
   let other;
   try { other = normalize(JSON.parse(e.newValue)); } catch (err) { return; }
   S.parent = other.parent;
+  if (applyReset(other.lastReset)) { afterReset(); return; }
   if (applyReviews(decisionsFrom(other.sessions))) { afterReviews(); return; }
   if (['home', 'setup'].includes(current.name)) render();
 });
@@ -1089,6 +1116,7 @@ async function finishLink(pid, cloudSave, cloudRev) {
 //   この端末にも変更がある → 2つを合わせてクラウドに書く（mergeSaves）
 let cloudStarted = false, syncing = false, syncTimer = null, changeSeq = 0, queuedRemote = null;
 let lastReviews = {};   // 保護者の承認（ほかの端末の記録を受け取ったあとにも当てはめ直す）
+let lastReset = null;   // 保護者が押した仲間のリセット（同じ）
 
 // クラウドの記録を使うとき、この端末だけのもの（タイマー・効果音の設定・保護者の設定・連携情報）は残す
 function fromCloud(remote) {
@@ -1121,7 +1149,7 @@ async function syncNow() {
     S.cloud.rev = res.rev;
     if (changeSeq === seq) S.cloud.dirty = false;
     saveQuiet();
-    if (res.merged) { applyReviews(lastReviews); refreshAfterSync(); }
+    if (res.merged) { applyReset(lastReset); applyReviews(lastReviews); refreshAfterSync(); }
     ok = true;
   } catch (e) { console.warn('クラウド保存に失敗', e); }
   syncing = false;
@@ -1139,6 +1167,7 @@ function onRemote(r) {
   S = fromCloud(remote);
   S.cloud.rev = r.rev;
   saveQuiet();
+  if (applyReset(lastReset)) { afterReset(); return; }
   applyReviews(lastReviews);
   refreshAfterSync();
 }
@@ -1163,6 +1192,7 @@ async function startCloud() {
       if (['home', 'setup'].includes(current.name)) render();
     },
     onReviews: reviews => { lastReviews = reviews; if (applyReviews(reviews)) afterReviews(); },
+    onReset: cmd => { lastReset = cmd; if (applyReset(cmd)) afterReset(); },
     onRemote,
     onUnlinked: () => {
       if (!S.cloud) return;

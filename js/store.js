@@ -18,10 +18,12 @@ function defaultState() {
     player: null,              // { name, level, xp, stars, tickets, createdAt }
     chars: {},                 // { [id]: { level, exp, count } }
     partner: null,
-    stage: { i: 0, dmg: 0, ver: 2 },
+    stage: { i: 0, dmg: 0, ver: 2, best: 0 },   // best: いちばん先まで進んだ街（リセットで戻ったときに使う）
     sessions: [],              // { subject, minutes, goal, goalMet, date, at, stars, prio, review, okMin, gotStars }
                                //   review: 'pending'（おうちの人の承認待ち）| 'ok'（承認）| 'ng'（却下）。古い記録にはない
     reviewNews: [],            // おうちの人が承認・却下した結果（まだ子どもに見せていないもの）
+    lastReset: null,           // 最後に当てはめた「仲間のリセット」{ id, contracts, stars }
+    resetNews: null,           // リセットされたことのお知らせ（まだ子どもに見せていないもの）
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
@@ -72,6 +74,7 @@ function migrate(st, gv) {
   }
   st.chars = chars;
   if (st.partner && !CHAR_BY_ID[st.partner]) st.partner = OLD_CHAR_IDS[st.partner] || Object.keys(chars)[0] || null;
+  if (st.stage.best == null) st.stage.best = st.stage.i;
   // ★1〜3のガチャ → D〜Sランク：今までのダブりを限界突破に変え、リニューアル記念にA契約書を1枚
   if (gv < 2) {
     for (const o of Object.values(st.chars)) o.lb = Math.min(LIMIT_BREAK.max, Math.max(0, (o.count || 1) - 1));
@@ -188,6 +191,7 @@ function damagePerMin(subjectId, stage) {
 // 1分ずつ攻撃して、倒したら次のステージへ
 function dealDamage(minutes, subjectId, events) {
   const start = S.stage.i, startDmg = S.stage.dmg;
+  const best = S.stage.best ?? S.stage.i;   // ここより手前の街は、前に一度クリアしている
   const firstWeak = damagePerMin(subjectId, stageInfo(start)).weak;
   let total = 0;
   const clears = [];
@@ -200,6 +204,7 @@ function dealDamage(minutes, subjectId, events) {
       clears.push(st.i);
       S.stage.i++;
       S.stage.dmg = 0;
+      S.stage.best = Math.max(best, S.stage.i);
     }
   }
   if (clears.length) {
@@ -208,7 +213,7 @@ function dealDamage(minutes, subjectId, events) {
     for (const ci of clears) {
       const st = stageInfo(ci);
       stars += st.boss ? 40 : 15;
-      if (st.boss) {
+      if (st.boss && ci >= best) {   // チケットと契約書は、はじめてクリアしたときだけ
         tickets += 1;
         contracts.push(st.region.last ? 'ssel' : 'a');   // ボスを倒すとA契約書、大陸の最後のボスならS選択契約書
       }
@@ -220,6 +225,32 @@ function dealDamage(minutes, subjectId, events) {
     events.push({ type: 'clear', clears, stars, tickets, contracts, newWorld, arrive: S.stage.i });
   }
   return { start, startDmg, firstWeak, total, clears, endStage: S.stage.i, endDmg: S.stage.dmg };
+}
+
+// ---------- 仲間のリセット（保護者ページから） ----------
+const RESET_CITY_MIN = 30;   // リセット後は、Dランク Lv1 で1つの街を約30分以内に倒せるところまで戻る
+// リセットしたらどうなるか（st: 保存データ）
+function planReset(st) {
+  const el = CHAR_BY_ID[st.partner] ? CHAR_BY_ID[st.partner].el : 'fire';
+  const id = CHARACTERS.find(c => c.r === 1 && c.el === el).id;   // 今のパートナーと同じ属性のDランク
+  const dmg = 10 + RARITY[1].base + RARITY[1].perLv;              // Dランク Lv1 の1分のダメージ
+  let i = st.stage.i;
+  while (i > 0 && stageInfo(i).hp / dmg > RESET_CITY_MIN) i--;
+  return { id, stage: i };
+}
+// 仲間をDランク1体（Lv1）だけにする。cmd: { id, contracts: 契約書も消す, stars: ⭐と🎫も0にする }
+function applyReset(cmd) {
+  if (!cmd || !cmd.id || !S.player || (S.lastReset && S.lastReset.id === cmd.id)) return false;
+  const plan = planReset(S);
+  S.chars = { [plan.id]: { level: 1, exp: 0, count: 1, lb: 0 } };
+  S.partner = plan.id;
+  S.stage = { i: plan.stage, dmg: 0, ver: 2, best: Math.max(S.stage.best ?? S.stage.i, S.stage.i) };
+  if (cmd.contracts) S.contracts = {};
+  if (cmd.stars) { S.player.stars = 0; S.player.tickets = 0; }
+  S.lastReset = { ...cmd };
+  S.resetNews = plan;
+  save();
+  return true;
 }
 
 // ---------- 連続記録 ----------
