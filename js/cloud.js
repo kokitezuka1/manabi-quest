@@ -4,7 +4,8 @@
 //         端末はいくつでも連携でき、どの端末でもクラウドの最新の記録から続けられる
 //
 // データの形（Firestore）
-//   families/{保護者のuid}            { parentUid, childUids: [子どもの端末のuid…], parent: { target, priority }, pairCode, linkedAt }
+//   families/{保護者のuid}            { parentUid, childUids: [子どもの端末のuid…], parent: { target, priority }, pairCode, linkedAt,
+//                                       reviews: { [記録のat]: { st: 'ok' | 'ng', min } } … 保護者の承認。子どもの端末が⭐に反映したら消す }
 //                                     （古い版では childUid に1台だけ入っている）
 //   families/{保護者のuid}/state/child { save: ゲームの保存データ(JSON文字列), rev: 更新番号, updatedAt, by: 書いた端末 }
 //   pairCodes/{6桁}                  { parentUid, expiresAt }   … 10分で期限切れ
@@ -23,7 +24,7 @@ const [{ initializeApp }, {
   signInWithCredential, GoogleAuthProvider, signOut,
 }, {
   getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
-  runTransaction, arrayUnion, arrayRemove,
+  runTransaction, arrayUnion, arrayRemove, deleteField,
 }] = config ? await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => import(SDK + f))) : [{}, {}, {}];
 
 let auth, db;
@@ -65,7 +66,7 @@ async function linkChild(code) {
 }
 
 // 連携中の端末で、保護者の設定とほかの端末の記録を受け取る
-async function startChild(pid, { onParent, onRemote, onUnlinked }) {
+async function startChild(pid, { onParent, onReviews, onRemote, onUnlinked }) {
   stopChild();
   await authReady;
   const user = auth.currentUser;
@@ -74,6 +75,7 @@ async function startChild(pid, { onParent, onRemote, onUnlinked }) {
   offs.push(onSnapshot(famRef(pid), s => {
     if (!hasChild(s.exists() ? s.data() : null, user.uid)) { onUnlinked(); return; }
     onParent(s.data().parent || null);
+    onReviews(s.data().reviews || {});
   }, denied));
   offs.push(onSnapshot(stateRef(pid), s => {
     if (!s.exists() || s.metadata.hasPendingWrites) return;
@@ -143,6 +145,14 @@ function watchChildState(uid, cb) {
   return onSnapshot(stateRef(uid), s => cb(s.exists() ? s.data() : null), () => cb(null));
 }
 function saveParentSettings(uid, parent) { return updateDoc(famRef(uid), { parent }); }
+// 承認・却下を書く（decisions: { [記録のat]: { st, min } }）
+function saveReviews(uid, decisions) {
+  return updateDoc(famRef(uid), Object.fromEntries(Object.entries(decisions).map(([at, d]) => ['reviews.' + at, d])));
+}
+// 子どもの端末に反映された承認を消す
+function pruneReviews(uid, ats) {
+  return updateDoc(famRef(uid), Object.fromEntries(ats.map(at => ['reviews.' + at, deleteField()])));
+}
 function unlinkAll(uid) { return updateDoc(famRef(uid), { childUids: [], childUid: null }); }
 
 window.Cloud = {
@@ -151,7 +161,7 @@ window.Cloud = {
   linkChild, startChild, stopChild, commit, leave,
   // 保護者
   signInParent, testSignIn, onParentAuth, ensureFamily, createPairCode, deletePairCode, watchFamily, watchChildState,
-  saveParentSettings, unlinkAll, signOut: () => signOut(auth),
+  saveParentSettings, saveReviews, pruneReviews, unlinkAll, signOut: () => signOut(auth),
   CODE_MINUTES,
 };
 window.dispatchEvent(new Event('cloud-ready'));

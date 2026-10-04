@@ -172,6 +172,44 @@ function contractGotHtml(kinds) {
   return `<div class="contract-got">${kinds.map(k => `<span class="ct ${k}">📜 ${CONTRACTS[k].name}</span>`).join('')}<small>ガチャ画面で使えるよ</small></div>`;
 }
 
+// ---------- おうちの人の承認 ----------
+function pendingHtml() {
+  const ps = pendingSessions();
+  if (!ps.length) return '';
+  return `<div class="card pending-card"><h3>⏳ おうちの人の確認待ち</h3>
+    <p class="small">${ps.length}回分の勉強（⭐最大 ${ps.reduce((a, s) => a + (s.stars || 0), 0)}個）。おうちの人が確認すると⭐が入るよ</p></div>`;
+}
+let showingNews = false;
+async function showReviewNews() {
+  if (showingNews || !S.reviewNews || !S.reviewNews.length || $('.modal-back') || $('.g-overlay') || current.name !== 'home') return;
+  showingNews = true;
+  const news = S.reviewNews;
+  S.reviewNews = [];
+  save();
+  const total = news.reduce((a, n) => a + n.stars, 0);
+  const row = n => {
+    const sub = SUBJECT_BY_ID[n.subject], d = new Date(n.at);
+    const when = `${d.getMonth() + 1}/${d.getDate()}`;
+    if (n.review === 'ng') return `<li class="ng"><span>${when} ${sub.icon}${sub.name} ${fmtMin(n.minutes)}</span><b>見送り</b></li>`;
+    return `<li><span>${when} ${sub.icon}${sub.name} ${n.okMin ? `<s>${fmtMin(n.minutes)}</s> → ${fmtMin(n.okMin)}` : fmtMin(n.minutes)}</span><b>⭐+${n.stars}</b></li>`;
+  };
+  if (total) { Sound.levelup(); FX.confetti(100); } else Sound.tap();
+  await modal(`<div class="m-emo gold">${icon('laurel-crown')}</div>
+    <h2>おうちの人が勉強を確認したよ！</h2>
+    <ul class="review-list">${news.map(row).join('')}</ul>
+    ${total ? `<div class="rw-big">⭐+${total}</div>` : '<p class="small">今回は⭐は入らなかったよ。次はがんばろう！</p>'}
+    <button class="btn gold wide" data-v="ok">${total ? 'やったー！' : 'OK'}</button>`, { cls: total ? 'shine' : '' });
+  showingNews = false;
+  renderTopbar(); renderNav();
+  if (current.name === 'home') render();
+}
+// 承認が届いたら、⭐の表示を更新してお知らせする
+function afterReviews() {
+  renderTopbar(); renderNav();
+  if (current.name === 'home') { if ($('.modal-back') || $('.g-overlay')) return; render(); }
+  else if (['gacha', 'records'].includes(current.name) && !$('.modal-back') && !$('.g-overlay')) render();
+}
+
 // ---------- 初回 ----------
 SCREENS.onboard = (el, params) => {
   if (!params.step || params.step === 1) {
@@ -274,12 +312,14 @@ SCREENS.home = el => {
       <div class="today-bar">${t.minutes ? t.bySubject.filter(x => x.min).map(x =>
         `<i style="flex:${x.min};background:${x.sub.color}" title="${x.sub.name}">${x.sub.icon}</i>`).join('') : '<span class="muted">まだ記録がありません。さっそく始めよう！</span>'}</div>
     </div>
+    ${pendingHtml()}
     ${promiseHtml(t)}
     <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
   $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
+  if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
     if (!b) return;
@@ -486,7 +526,8 @@ SCREENS.result = async (el, r) => {
     <div class="res-sub">${subjChip(r.subject)}を <b class="big-num" id="rmin">0</b> 分がんばった！</div>
     ${r.goalMet ? '<div class="goal-badge">🎯 目標達成ボーナス！</div>' : ''}
     <div class="card rewards">
-      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">スター${r.prio ? ` <em class="tag prio">おすすめ ×${PRIORITY_STAR_RATE}</em>` : ''}</span><b>+<span id="rstars">0</span></b></div>
+      <div class="rw-row" id="row1"><span class="rw-ic">⭐</span><span class="rw-l">スター <em class="tag wait">承認待ち</em>${r.prio ? ` <em class="tag prio">おすすめ ×${PRIORITY_STAR_RATE}</em>` : ''}</span><b>+<span id="rstars">0</span></b>
+        <small class="rw-note">おうちの人が確認したら入るよ</small></div>
       <div class="rw-row" id="row2"><span class="rw-ic">🧠</span><span class="rw-l">経験値 <span class="lvl" id="plv">Lv.${r.xpBefore.level}</span></span><b>+<span id="rxp">0</span></b>
         <div class="bar xp"><i id="pbar"></i></div></div>
       <div class="rw-row" id="row3"><span class="rw-ic" style="color:${ELEMENTS[CHAR_BY_ID[r.partner].el].color}">${icon(charIcon(r.partner, r.charBefore.level))}</span><span class="rw-l">${charName(r.partner, r.charBefore.level)} <span class="lvl" id="clv">Lv.${r.charBefore.level}</span>
@@ -660,7 +701,7 @@ SCREENS.gacha = el => {
       <button class="btn" data-k="one" ${p.stars < GACHA.cost1 ? 'disabled' : ''}>⭐${GACHA.cost1}で1回引く</button>
       <button class="btn pink" data-k="ten" ${p.stars < GACHA.cost10 ? 'disabled' : ''}>⭐${GACHA.cost10}で10連！<small>${RARITY[GACHA.tenMin].label}ランク以上1体確定</small></button>
     </div>
-    <p class="muted small center">⭐は勉強1分につき1個もらえる${p.stars < GACHA.cost1 ? `（あと${GACHA.cost1 - p.stars}個で1回引ける）` : ''}</p>
+    <p class="muted small center">⭐は勉強1分につき1個（おうちの人が承認したら入る）${p.stars < GACHA.cost1 ? `（あと${GACHA.cost1 - p.stars}個で1回引ける）` : ''}</p>
     <div class="card contracts"><h3>📜 契約書</h3>
       ${owned.length ? owned.map(k => `<div class="ct-row"><span class="ct ${k}">📜</span>
         <div class="ct-info"><b>${CONTRACTS[k].name} ×${S.contracts[k]}</b><small>${CONTRACTS[k].desc}</small></div>
@@ -851,8 +892,8 @@ SCREENS.records = (el, params) => {
   const now = new Date();
   const base = new Date(now.getFullYear(), now.getMonth() + off, 1);
   const byDate = {};
-  for (const s of S.sessions) byDate[s.date] = (byDate[s.date] || 0) + s.minutes;
-  const totalMin = S.sessions.reduce((a, s) => a + s.minutes, 0);
+  for (const s of S.sessions) byDate[s.date] = (byDate[s.date] || 0) + sessionMin(s);
+  const totalMin = S.sessions.reduce((a, s) => a + sessionMin(s), 0);
   const days = Object.keys(byDate).length;
 
   // カレンダー
@@ -876,8 +917,8 @@ SCREENS.records = (el, params) => {
   for (let i = 6; i >= 0; i--) {
     const k = dayOffset(t, -i);
     const ss = S.sessions.filter(s => s.date === k);
-    week.push({ k, total: ss.reduce((a, s) => a + s.minutes, 0),
-      parts: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) })).filter(x => x.min) });
+    week.push({ k, total: ss.reduce((a, s) => a + sessionMin(s), 0),
+      parts: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + sessionMin(s), 0) })).filter(x => x.min) });
   }
   const wMax = Math.max(30, ...week.map(w => w.total));
   const dows = ['日', '月', '火', '水', '木', '金', '土'];
@@ -888,7 +929,7 @@ SCREENS.records = (el, params) => {
       <small>${dows[new Date(yy, mm - 1, dd).getDay()]}</small></div>`;
   }).join('');
 
-  const subTotals = SUBJECTS.map(sub => ({ sub, min: S.sessions.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) }));
+  const subTotals = SUBJECTS.map(sub => ({ sub, min: S.sessions.filter(s => s.subject === sub.id).reduce((a, s) => a + sessionMin(s), 0) }));
   const sMax = Math.max(1, ...subTotals.map(x => x.min));
   const recent = S.sessions.slice(-10).reverse();
 
@@ -908,11 +949,17 @@ SCREENS.records = (el, params) => {
     <div class="card"><h3>最近の記録</h3>${recent.length ? recent.map(s => {
       const d = new Date(s.at);
       return `<div class="recent"><span class="muted">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</span>
-        ${subjChip(s.subject)}<b>${fmtMin(s.minutes)}</b>${s.goalMet ? '🎯' : ''}</div>`;
+        ${subjChip(s.subject)}<b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${s.minutes}</s>→` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '🎯' : ''}${reviewMark(s)}</div>`;
     }).join('') : '<p class="muted">まだ記録がありません</p>'}</div>`;
   $('#prevm').onclick = () => { Sound.tap(); go('records', { m: off - 1 }); };
   $('#nextm').onclick = () => { Sound.tap(); go('records', { m: off + 1 }); };
 };
+
+function reviewMark(s) {
+  return s.review === 'pending' ? '<span class="rv wait" title="おうちの人の確認待ち">⏳</span>'
+    : s.review === 'ok' ? `<span class="rv ok" title="承認">⭐${s.gotStars}</span>`
+    : s.review === 'ng' ? '<span class="rv ng" title="見送り">✖</span>' : '';
+}
 
 // ---------- 設定 ----------
 function openSettings() {
@@ -926,9 +973,11 @@ function openSettings() {
         ? `<p class="cloud-state ${S.cloud.lost ? 'lost' : ''}">${S.cloud.lost ? '⚠️ 連携が切れています。保護者ページで新しいコードを出して、連携し直してください。' : '✅ 保護者と連携中（記録は自動で保護者に届きます。ほかの端末でも続きから遊べます）'}</p>
            <div class="m-btns">${S.cloud.lost ? '<button class="btn mini" id="link">連携し直す</button>' : ''}<button class="btn ghost mini" id="unlink">連携を解除</button></div>`
         : `<button class="btn mini wide parent-link" id="link">🔗 保護者と連携する</button>
-           <p class="small">保護者ページ（${location.host}${location.pathname.replace(/[^/]*$/, '')}parent.html）で Google アカウントにログインし、表示された6桁のコードを入力します。</p>`)
+           <p class="small">保護者ページ（${location.host}${location.pathname.replace(/[^/]*$/, '')}parent.html）で Google アカウントにログインし、表示された6桁のコードを入力します。</p>
+           <a class="btn ghost mini wide" href="parent.html?local=1">👪 連携せずに、この端末で保護者ページを開く</a>
+           <p class="small">勉強の承認や目標時間の設定ができます。</p>`)
       : `<a class="btn mini wide parent-link" href="parent.html">👪 保護者ページを開く</a>
-      <p class="small">勉強時間の確認や、1日の目標時間・優先する教科の設定ができます。</p>`}
+      <p class="small">勉強の承認（承認すると⭐が入ります）や、1日の目標時間・優先する教科の設定ができます。</p>`}
       <div class="m-btns"><button class="btn ghost mini" id="export">データをダウンロード</button><button class="btn ghost mini" id="import">データを読み込む</button></div>
       <input type="file" id="importfile" accept="application/json" hidden>
       <button class="link danger" id="reset">最初からやり直す</button>
@@ -976,7 +1025,10 @@ function openSettings() {
 // 保護者ページ（別のタブ）で設定が変わったら取り込む
 window.addEventListener('storage', e => {
   if (e.key !== SAVE_KEY || !e.newValue) return;
-  try { S.parent = normalize(JSON.parse(e.newValue)).parent; } catch (err) { return; }
+  let other;
+  try { other = normalize(JSON.parse(e.newValue)); } catch (err) { return; }
+  S.parent = other.parent;
+  if (applyReviews(decisionsFrom(other.sessions))) { afterReviews(); return; }
   if (['home', 'setup'].includes(current.name)) render();
 });
 
@@ -1036,6 +1088,7 @@ async function finishLink(pid, cloudSave, cloudRev) {
 //   この端末に変更がない → クラウドの新しい記録をそのまま使う
 //   この端末にも変更がある → 2つを合わせてクラウドに書く（mergeSaves）
 let cloudStarted = false, syncing = false, syncTimer = null, changeSeq = 0, queuedRemote = null;
+let lastReviews = {};   // 保護者の承認（ほかの端末の記録を受け取ったあとにも当てはめ直す）
 
 // クラウドの記録を使うとき、この端末だけのもの（タイマー・効果音の設定・保護者の設定・連携情報）は残す
 function fromCloud(remote) {
@@ -1068,7 +1121,7 @@ async function syncNow() {
     S.cloud.rev = res.rev;
     if (changeSeq === seq) S.cloud.dirty = false;
     saveQuiet();
-    if (res.merged) refreshAfterSync();
+    if (res.merged) { applyReviews(lastReviews); refreshAfterSync(); }
     ok = true;
   } catch (e) { console.warn('クラウド保存に失敗', e); }
   syncing = false;
@@ -1086,6 +1139,7 @@ function onRemote(r) {
   S = fromCloud(remote);
   S.cloud.rev = r.rev;
   saveQuiet();
+  applyReviews(lastReviews);
   refreshAfterSync();
 }
 function refreshAfterSync() {
@@ -1108,6 +1162,7 @@ async function startCloud() {
       saveQuiet();
       if (['home', 'setup'].includes(current.name)) render();
     },
+    onReviews: reviews => { lastReviews = reviews; if (applyReviews(reviews)) afterReviews(); },
     onRemote,
     onUnlinked: () => {
       if (!S.cloud) return;

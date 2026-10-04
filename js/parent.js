@@ -18,9 +18,9 @@ const cloud = { user: null, fam: null, state: null, code: null, offs: [] };
 function parseKey(key) { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d); }
 function dayLabel(key) { const d = parseKey(key); return `${d.getMonth() + 1}月${d.getDate()}日（${DOWS[d.getDay()]}）`; }
 function hhmm(t) { const d = new Date(t); return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); }
-function minutesOn(key) { return S.sessions.filter(s => s.date === key).reduce((a, s) => a + s.minutes, 0); }
+function minutesOn(key) { return S.sessions.filter(s => s.date === key).reduce((a, s) => a + sessionMin(s), 0); }
 function subjectMinutes(sessions) {
-  return SUBJECTS.map(sub => ({ sub, min: sessions.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) }));
+  return SUBJECTS.map(sub => ({ sub, min: sessions.filter(s => s.subject === sub.id).reduce((a, s) => a + sessionMin(s), 0) }));
 }
 function freshDraft() { return JSON.parse(JSON.stringify(S.parent)); }
 function toast(msg) {
@@ -50,8 +50,9 @@ function render() {
       <a class="btn" href="index.html">ゲームを開く</a></section>`;
     return;
   }
-  root.innerHTML = headerHtml() + dayHtml() + weekHtml() + settingsHtml() + pinHtml() + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + pinHtml() + footHtml();
   bind();
+  bindReview();
 }
 
 // ---------- クラウド連携モード ----------
@@ -64,7 +65,10 @@ function renderCloud(root) {
       <p>お子さまの勉強の記録を見たり、目標時間を決めたりするには、保護者の Google アカウントでログインしてください。</p>
       <button class="btn google" id="login">Google でログイン</button>
       <p class="note">お子さまにはアカウントは不要です。ログイン後に表示される6桁のコードを、お子さまのゲーム画面で入力して連携します。</p>
+      ${localKid() ? `<hr><p class="note">この端末でお子さまがゲームをしていて、連携しない場合は、こちらから記録の確認と勉強の承認ができます。</p>
+      <button class="btn ghost" id="uselocal">連携せずに、この端末の記録を見る</button>` : ''}
     </section>${footHtml()}`;
+    if ($('#uselocal')) $('#uselocal').onclick = () => { mode = 'local'; draft = null; render(); };
     $('#login').onclick = async () => {
       try { await Cloud.signInParent(); } catch (e) { if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') toast('ログインできませんでした（' + (e.code || e.message) + '）'); }
     };
@@ -91,9 +95,10 @@ function renderCloud(root) {
     bindCloud();
     return;
   }
-  root.innerHTML = headerHtml() + dayHtml() + weekHtml() + settingsHtml() + accountHtml(true) + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + accountHtml(true) + footHtml();
   bind();
   bindCloud();
+  bindReview();
 }
 
 // クラウドの記録に、保護者の設定（目標時間・優先教科）を重ねたもの
@@ -179,9 +184,10 @@ function startCloudMode() {
       }
       prevKids = kids;
       cloud.fam = fam;
+      pruneReviews();
       render();
     }));
-    cloud.offs.push(Cloud.watchChildState(user.uid, st => { cloud.state = st; render(); }));
+    cloud.offs.push(Cloud.watchChildState(user.uid, st => { cloud.state = st; pruneReviews(); render(); }));
   });
 }
 
@@ -193,10 +199,78 @@ function headerHtml() {
   </header>`;
 }
 
+// ---------- 勉強の承認 ----------
+// クラウドでは、承認したあと、お子さまの端末が⭐に反映するまで「反映待ち」と表示する
+function sentReviews() { return mode === 'cloud' && cloud.fam && cloud.fam.reviews || {}; }
+function reviewHtml() {
+  const sent = sentReviews();
+  const ps = pendingSessions();
+  const todo = ps.filter(s => !sent[s.at]), waiting = ps.filter(s => sent[s.at]);
+  const warn = mode === 'local' && !S.parent.pin
+    ? '<p class="alert">⚠️ 暗証番号が設定されていないため、お子さまが自分で承認できてしまいます。下の「暗証番号（PIN）」で設定してください。</p>' : '';
+  if (!ps.length) return `<section class="card review"><h2>勉強の承認</h2>${warn}<p class="muted">承認を待っている勉強はありません。</p>
+    <p class="note">お子さまが勉強を終えると、ここに申請が届きます。承認すると、勉強した時間に応じた⭐がお子さまに入ります。</p></section>`;
+  return `<section class="card review"><h2>勉強の承認 <span class="count">${todo.length}</span></h2>${warn}
+    <p class="note">内容を確認して承認すると⭐が入ります。実際より長いときは、時間を直してから承認してください。</p>
+    ${todo.length ? `<ul class="rv-list">${todo.slice().reverse().map(s => {
+      const sub = SUBJECT_BY_ID[s.subject];
+      return `<li data-at="${s.at}">
+        <div class="rv-head"><span class="rv-when">${dayLabel(s.date)} ${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
+          <span class="rv-sub">${sub.icon} ${sub.name}${s.prio ? '<em class="prio">優先</em>' : ''}</span></div>
+        <div class="rv-body"><label class="rv-min"><input type="number" inputmode="numeric" min="1" max="${s.minutes}" value="${s.minutes}"> 分<small>申請 ${fmtMin(s.minutes)}${s.goalMet ? `・目標${s.goal}分達成` : ''}</small></label>
+          <span class="rv-star">⭐<b>${s.stars}</b></span></div>
+        <div class="rv-btns"><button class="btn ghost rv-ng">却下</button><button class="btn rv-ok">承認</button></div></li>`;
+    }).join('')}</ul>
+    ${todo.length >= 2 ? `<div class="save-row"><button class="btn" id="rv-all">申請どおりにすべて承認（${todo.length}件）</button></div>` : ''}` : ''}
+    ${waiting.length ? `<p class="note">✓ 承認済み・お子さまの端末に反映待ち：${waiting.length}件（お子さまがゲームを開くと⭐が入ります）</p>` : ''}
+  </section>`;
+}
+async function decide(decisions) {
+  if (mode === 'cloud') {
+    try { await Cloud.saveReviews(cloud.user.uid, decisions); } catch (e) { toast('保存できませんでした'); return false; }
+  } else {
+    S = load();
+    applyReviews(decisions);
+  }
+  render();
+  return true;
+}
+function bindReview() {
+  $$('.rv-list li').forEach(li => {
+    const s = S.sessions.find(x => String(x.at) === li.dataset.at);
+    if (!s) return;
+    const inp = $('input', li), star = $('.rv-star b', li);
+    inp.oninput = () => { const v = Math.round(+inp.value); star.textContent = v >= 1 && v <= s.minutes ? reviewStars(s, v) : '—'; };
+    $('.rv-ok', li).onclick = async () => {
+      const v = Math.round(+inp.value);
+      if (!(v >= 1 && v <= s.minutes)) { toast(`1〜${s.minutes}分で入力してください`); inp.focus(); return; }
+      if (await decide({ [s.at]: { st: 'ok', min: v } })) toast(`承認しました（⭐${reviewStars(s, v)}）`);
+    };
+    $('.rv-ng', li).onclick = async () => {
+      if (!confirm(`${SUBJECT_BY_ID[s.subject].name} ${fmtMin(s.minutes)}を却下しますか？（⭐は入りません）`)) return;
+      if (await decide({ [s.at]: { st: 'ng' } })) toast('却下しました');
+    };
+  });
+  if ($('#rv-all')) $('#rv-all').onclick = async () => {
+    const sent = sentReviews();
+    const list = pendingSessions().filter(s => !sent[s.at]);
+    if (!confirm(`${list.length}件をすべて申請どおりに承認しますか？`)) return;
+    if (await decide(Object.fromEntries(list.map(s => [s.at, { st: 'ok', min: s.minutes }])))) toast(`${list.length}件を承認しました`);
+  };
+}
+// お子さまの端末に反映された承認を、クラウドから消す
+function pruneReviews() {
+  const sent = sentReviews();
+  if (!cloud.state || !Object.keys(sent).length) return;
+  const st = cloudState();
+  const done = Object.keys(sent).filter(at => { const s = st.sessions.find(x => String(x.at) === at); return !s || s.review !== 'pending'; });
+  if (done.length) Cloud.pruneReviews(cloud.user.uid, done).catch(() => {});
+}
+
 // ---------- その日の勉強 ----------
 function dayHtml() {
   const ss = S.sessions.filter(s => s.date === day);
-  const total = ss.reduce((a, s) => a + s.minutes, 0);
+  const total = ss.reduce((a, s) => a + sessionMin(s), 0);
   const target = targetFor(day);
   const isToday = day === today();
   const a = S.active;
@@ -230,8 +304,15 @@ function dayHtml() {
     ${ss.length ? `<h3>記録</h3><ul class="sessions">${ss.slice().reverse().map(s => `<li>
         <span class="time">${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
         <span>${SUBJECT_BY_ID[s.subject].icon} ${SUBJECT_BY_ID[s.subject].name}</span>
-        <b>${fmtMin(s.minutes)}</b>${s.goalMet ? '<span class="tag">目標達成</span>' : ''}</li>`).join('')}</ul>` : ''}
+        <b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${fmtMin(s.minutes)}</s> ` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '<span class="tag">目標達成</span>' : ''}${reviewTag(s)}</li>`).join('')}</ul>` : ''}
   </section>`;
+}
+
+function reviewTag(s) {
+  if (s.review === 'pending') return sentReviews()[s.at] ? '<span class="tag">反映待ち</span>' : '<span class="tag wait">承認待ち</span>';
+  if (s.review === 'ok') return `<span class="tag ok">承認 ⭐${s.gotStars}</span>`;
+  if (s.review === 'ng') return '<span class="tag ng">却下</span>';
+  return '';
 }
 
 // ---------- 最近7日間 ----------
@@ -397,7 +478,14 @@ function renderLock(root) {
 }
 
 // ゲーム（別のタブ）で記録が増えたら表示を更新する。編集中の設定はそのまま残す
-window.addEventListener('storage', e => { if (e.key === SAVE_KEY && mode === 'local') render(); });
+// 承認の時間を入力している途中なら、書き換えないで入力が終わってから更新する
+function editing() { return !!document.activeElement?.closest('.rv-list'); }
+window.addEventListener('storage', e => {
+  if (e.key !== SAVE_KEY || mode !== 'local') return;
+  if (!editing()) { render(); return; }
+  // 入力が終わったら更新する（承認ボタンを押すまで待てるよう、少し遅らせる）
+  document.activeElement.addEventListener('blur', () => setTimeout(() => { if (!editing()) render(); }, 600), { once: true });
+});
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode === 'local') render(); });
 setInterval(() => {
   if (document.activeElement?.tagName === 'SELECT') return;
@@ -406,6 +494,8 @@ setInterval(() => {
 }, 30000);
 
 // 連携（Firebase）が使えるかどうかで動きを切り替える
+// この端末に、連携していないゲームの記録があるか
+function localKid() { const l = load(); return !!l.player && !l.cloud; }
 function decideMode() {
   if (mode) return;
   if (window.Cloud && Cloud.enabled) startCloudMode();
@@ -413,4 +503,6 @@ function decideMode() {
 }
 window.addEventListener('cloud-ready', decideMode);
 setTimeout(decideMode, 5000);   // 読み込みに失敗したときは、この端末のデータで表示
+// ゲームの設定から「連携せずに、この端末で保護者ページを開く」で来たとき
+if (new URLSearchParams(location.search).has('local') && localKid()) mode = 'local';
 render();

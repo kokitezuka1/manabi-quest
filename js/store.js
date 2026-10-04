@@ -19,7 +19,9 @@ function defaultState() {
     chars: {},                 // { [id]: { level, exp, count } }
     partner: null,
     stage: { i: 0, dmg: 0, ver: 2 },
-    sessions: [],              // { subject, minutes, goal, goalMet, date, at }
+    sessions: [],              // { subject, minutes, goal, goalMet, date, at, stars, prio, review, okMin, gotStars }
+                               //   review: 'pending'（おうちの人の承認待ち）| 'ok'（承認）| 'ng'（却下）。古い記録にはない
+    reviewNews: [],            // おうちの人が承認・却下した結果（まだ子どもに見せていないもの）
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
@@ -251,13 +253,17 @@ function finishSession(subject, minutes, goal, goalMet) {
   touchStreak(events);
 
   const xp = Math.round(minutes * 10 * (goalMet ? 1.2 : 1));
+  // 勉強の⭐はすぐには入らない。おうちの人が承認したら入る（applyReviews）
   const stars = starsFor(minutes, goalMet, subject);
   const prio = isPriority(subject);
-  p.stars += stars;
+  ensureDaily();
   const before = todayStats().minutes;
-  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at: Date.now() });
+  // at は承認のときの目印にもなるので、ほかの記録と重ならないようにする
+  const at = Math.max(Date.now(), ...S.sessions.slice(-5).map(s => s.at + 1));
+  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at, stars, prio, review: 'pending' });
   const target = targetFor(today());
-  if (target && before < target && before + minutes >= target) {
+  if (target && !S.daily.targetPaid && before < target && before + minutes >= target) {
+    S.daily.targetPaid = true;   // 却下で時間が減ったあとに、もう一度もらえないように
     p.stars += TARGET_BONUS.stars;
     events.push({ type: 'target', target, stars: TARGET_BONUS.stars });
   }
@@ -275,6 +281,45 @@ function finishSession(subject, minutes, goal, goalMet) {
 function starsFor(minutes, goalMet, subject) {
   const base = minutes + (goalMet ? 5 : 0);
   return isPriority(subject) ? Math.round(base * PRIORITY_STAR_RATE) : base;
+}
+
+// ---------- おうちの人の承認 ----------
+// 記録として数える時間（却下は0、時間を直して承認したらその時間）
+function sessionMin(s) { return s.review === 'ng' ? 0 : s.okMin ?? s.minutes; }
+function pendingSessions() { return S.sessions.filter(s => s.review === 'pending'); }
+// 承認した時間で⭐を計算する（優先教科かどうかは勉強したときのまま）
+function reviewStars(s, min) {
+  const base = min + (s.goalMet && min >= s.goal ? 5 : 0);
+  return s.prio ? Math.round(base * PRIORITY_STAR_RATE) : base;
+}
+// おうちの人の判断 { [記録のat]: { st: 'ok' | 'ng', min: 承認する分数 } } を、承認待ちの記録に当てはめて⭐を入れる
+function applyReviews(decisions) {
+  if (!decisions || !S.player) return 0;
+  const news = [];
+  for (const s of S.sessions) {
+    const d = s.review === 'pending' && decisions[s.at];
+    if (!d) continue;
+    if (d.st === 'ok') {
+      const min = Math.max(1, Math.min(s.minutes, Math.round(+d.min) || s.minutes));
+      if (min !== s.minutes) s.okMin = min;
+      s.gotStars = reviewStars(s, min);
+      s.review = 'ok';
+      S.player.stars += s.gotStars;
+    } else if (d.st === 'ng') {
+      s.review = 'ng';
+    } else continue;
+    news.push({ at: s.at, subject: s.subject, minutes: s.minutes, okMin: s.okMin, review: s.review, stars: s.gotStars || 0 });
+  }
+  if (!news.length) return 0;
+  S.reviewNews = [...(S.reviewNews || []), ...news].slice(-30);
+  save();
+  return news.length;
+}
+// 記録から、承認・却下が決まったものを取り出す（ほかのタブで承認されたときに使う）
+function decisionsFrom(sessions) {
+  const d = {};
+  for (const s of sessions || []) if (s.review === 'ok' || s.review === 'ng') d[s.at] = { st: s.review, min: s.okMin ?? s.minutes };
+  return d;
 }
 
 // ---------- 保護者の設定 ----------
@@ -365,13 +410,13 @@ function ensureDaily() {
 }
 function todayStats() {
   const t = today();
-  const ss = S.sessions.filter(s => s.date === t);
+  const ss = S.sessions.filter(s => s.date === t && s.review !== 'ng');
   return {
-    minutes: ss.reduce((a, s) => a + s.minutes, 0),
+    minutes: ss.reduce((a, s) => a + sessionMin(s), 0),
     subjects: new Set(ss.map(s => s.subject)).size,
     goals: ss.filter(s => s.goalMet).length,
     sessions: ss.length,
-    bySubject: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) })),
+    bySubject: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + sessionMin(s), 0) })),
   };
 }
 function missionList() {

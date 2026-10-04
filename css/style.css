@@ -531,3 +531,19 @@ b { font-weight: 800; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ---- おうちの人の承認 ---- */
+.tag.wait { background: rgba(245, 165, 36, .2); color: #ffc46b; }
+.rw-note { grid-column: 2 / 4; font-size: 11px; color: var(--sub); text-align: right; }
+.pending-card { border: 1px dashed rgba(245, 165, 36, .6); }
+.pending-card h3 { margin-bottom: 4px; }
+.review-list { list-style: none; padding: 0; margin: 10px 0; text-align: left; display: grid; gap: 6px; }
+.review-list li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, .05); font-size: 14px; }
+.review-list li b { color: var(--gold1); white-space: nowrap; }
+.review-list li.ng { opacity: .6; }
+.review-list li.ng b { color: var(--sub); }
+.review-list s, .recent s { opacity: .6; }
+.rv { font-size: 12px; margin-left: 4px; white-space: nowrap; }
+.rv.ok { color: var(--gold1); }
+.rv.ng { color: var(--sub); }
+.recent b.ng { text-decoration: line-through; opacity: .5; }

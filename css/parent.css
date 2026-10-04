@@ -138,3 +138,25 @@ select, input { font: inherit; color: var(--ink); background: var(--card); borde
 .relink, .relink2 { margin-top: 10px; font-size: 14px; }
 .relink summary, .relink2 summary { cursor: pointer; color: var(--accent); }
 .relink2 .btn { margin-top: 8px; }
+
+/* ---- 勉強の承認 ---- */
+.review h2 { display: flex; align-items: center; gap: 8px; }
+.review .count { font-size: 13px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--warn); color: var(--card); display: inline-grid; place-items: center; }
+.alert { margin: 8px 0; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 700; }
+.rv-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.rv-list li { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.rv-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; }
+.rv-when { font-size: 13px; color: var(--sub); }
+.rv-sub { font-weight: 700; }
+.rv-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rv-min { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; font-weight: 700; }
+.rv-min input { width: 72px; font: inherit; font-size: 18px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+.rv-min small { width: 100%; font-size: 12px; font-weight: 400; color: var(--sub); }
+.rv-star { font-size: 14px; color: var(--warn); white-space: nowrap; }
+.rv-star b { font-size: 20px; margin-left: 2px; }
+.rv-btns { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.tag.wait { color: var(--warn); background: var(--warn-soft); }
+.tag.ng { color: var(--sub); background: var(--track); }
+b.ng { text-decoration: line-through; color: var(--muted); }
+.sessions s { color: var(--muted); font-weight: 400; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0 4px; }
