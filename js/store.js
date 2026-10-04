@@ -1,0 +1,304 @@
+'use strict';
+// ===== セーブデータと ゲームのルール =====
+
+const SAVE_KEY = 'manabi-quest-v1';
+
+function dateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function today() { return dateKey(new Date()); }
+function dayOffset(key, n) {
+  const [y, m, d] = key.split('-').map(Number);
+  return dateKey(new Date(y, m - 1, d + n));
+}
+
+function defaultState() {
+  return {
+    v: 1,
+    player: null,              // { name, level, xp, stars, tickets, createdAt }
+    chars: {},                 // { [id]: { level, exp, count } }
+    partner: null,
+    stage: { i: 0, dmg: 0 },
+    sessions: [],              // { subject, minutes, goal, goalMet, date, at }
+    daily: { date: '', claimed: [] },
+    streak: { count: 0, last: '' },
+    gacha: { pity: 0, total: 0 },
+    settings: { sound: true, lastGoal: 15, lastSubject: null },
+    active: null,              // タイマー実行中の情報
+  };
+}
+
+let S = load();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      const base = defaultState();
+      return { ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) } };
+    }
+  } catch (e) { /* こわれたデータは むし */ }
+  return defaultState();
+}
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 容量オーバーなど */ }
+}
+
+// ---------- プレイヤー ----------
+function startGame(name, starterId) {
+  S = defaultState();
+  S.player = { name, level: 1, xp: 0, stars: 0, tickets: 1, createdAt: Date.now() };
+  S.chars[starterId] = { level: 1, exp: 0, count: 1 };
+  S.partner = starterId;
+  save();
+}
+
+function xpNeed(lv) { return 40 + lv * 20; }
+function titleFor(lv) {
+  let t = TITLES[0][1];
+  for (const [l, name] of TITLES) if (lv >= l) t = name;
+  return t;
+}
+
+function addXp(amount, events) {
+  const p = S.player;
+  const from = p.level;
+  p.xp += amount;
+  let stars = 0, tickets = 0;
+  while (p.xp >= xpNeed(p.level)) {
+    p.xp -= xpNeed(p.level);
+    p.level++;
+    stars += 5;
+    if (p.level % 5 === 0) tickets++;
+  }
+  if (p.level > from) {
+    p.stars += stars;
+    p.tickets += tickets;
+    events.push({ type: 'levelup', from, to: p.level, stars, tickets, newTitle: titleFor(p.level) !== titleFor(from) ? titleFor(p.level) : null });
+  }
+}
+
+// ---------- なかま ----------
+function charExpNeed(lv) { return 30 + lv * 15; }
+function charStage(lv) { return lv >= EVOLVE_LV[1] ? 2 : lv >= EVOLVE_LV[0] ? 1 : 0; }
+function charLevel(id) { return S.chars[id] ? S.chars[id].level : 1; }
+function charEmoji(id, lv) { return CHAR_BY_ID[id].forms[charStage(lv ?? charLevel(id))]; }
+function charName(id, lv) { return CHAR_BY_ID[id].names[charStage(lv ?? charLevel(id))]; }
+function charPower(id) {
+  const c = CHAR_BY_ID[id];
+  return RARITY[c.r].base + charLevel(id) * c.r;
+}
+
+function addCharExp(id, amount, events) {
+  const o = S.chars[id];
+  const from = o.level;
+  o.exp += amount;
+  while (o.level < CHAR_MAX_LV && o.exp >= charExpNeed(o.level)) {
+    o.exp -= charExpNeed(o.level);
+    o.level++;
+  }
+  if (o.level >= CHAR_MAX_LV) o.exp = 0;
+  if (o.level > from) events.push({ type: 'charlv', id, from, to: o.level });
+  if (charStage(o.level) > charStage(from)) events.push({ type: 'evolve', id, fromLv: from, toLv: o.level });
+}
+
+// ---------- ステージ ----------
+const STAGES_PER_LOOP = WORLDS.length * 3;
+function stageInfo(i) {
+  const loop = Math.floor(i / STAGES_PER_LOOP);
+  const k = i % STAGES_PER_LOOP;
+  const worldIdx = Math.floor(k / 3);
+  const world = WORLDS[worldIdx];
+  const enemy = world.enemies[k % 3];
+  const raw = (120 + i * 90 + i * i * 6) * (enemy.boss ? 1.6 : 1);
+  return { i, loop, worldIdx, world, sub: k % 3, enemy, boss: !!enemy.boss, hp: Math.round(raw / 10) * 10 };
+}
+function currentStage() { return stageInfo(S.stage.i); }
+
+function damagePerMin(subjectId, stage) {
+  const base = 10 + (S.partner ? charPower(S.partner) : 5);
+  const weak = SUBJECT_BY_ID[subjectId].el === stage.enemy.weak;
+  return { dmg: base * (weak ? 2 : 1), weak };
+}
+
+// 1ぷんずつ こうげきして、たおしたら つぎのステージへ
+function dealDamage(minutes, subjectId, events) {
+  const start = S.stage.i, startDmg = S.stage.dmg;
+  const firstWeak = damagePerMin(subjectId, stageInfo(start)).weak;
+  let total = 0;
+  const clears = [];
+  for (let m = 0; m < minutes; m++) {
+    const st = stageInfo(S.stage.i);
+    const { dmg } = damagePerMin(subjectId, st);
+    total += dmg;
+    S.stage.dmg += dmg;
+    if (S.stage.dmg >= st.hp) {
+      clears.push(st.i);
+      S.stage.i++;
+      S.stage.dmg = 0;
+    }
+  }
+  if (clears.length) {
+    let stars = 0, tickets = 0;
+    for (const ci of clears) {
+      const st = stageInfo(ci);
+      stars += st.boss ? 50 : 20;
+      if (st.boss) tickets++;
+    }
+    S.player.stars += stars;
+    S.player.tickets += tickets;
+    const newWorld = clears.some(ci => stageInfo(ci).boss) ? stageInfo(S.stage.i) : null;
+    events.push({ type: 'clear', clears, stars, tickets, newWorld });
+  }
+  return { start, startDmg, firstWeak, total, clears, endStage: S.stage.i, endDmg: S.stage.dmg };
+}
+
+// ---------- れんぞく きろく ----------
+function currentStreak() {
+  const t = today();
+  if (S.streak.last === t || S.streak.last === dayOffset(t, -1)) return S.streak.count;
+  return 0;
+}
+function touchStreak(events) {
+  const t = today();
+  if (S.streak.last === t) return;
+  S.streak.count = S.streak.last === dayOffset(t, -1) ? S.streak.count + 1 : 1;
+  S.streak.last = t;
+  const stars = 5 + Math.min(S.streak.count, 7) * 5;
+  const tickets = [3, 7, 14, 21, 30, 50, 100].includes(S.streak.count) ? (S.streak.count >= 7 ? 2 : 1) : 0;
+  S.player.stars += stars;
+  S.player.tickets += tickets;
+  events.push({ type: 'login', streak: S.streak.count, stars, tickets });
+}
+
+// ---------- べんきょう おわり ----------
+function finishSession(subject, minutes, goal, goalMet) {
+  const events = [];
+  const p = S.player;
+  const xpBefore = { level: p.level, xp: p.xp };
+  const partner = S.partner;
+  const charBefore = { level: S.chars[partner].level, exp: S.chars[partner].exp };
+
+  touchStreak(events);
+
+  const xp = Math.round(minutes * 10 * (goalMet ? 1.2 : 1));
+  const stars = minutes + (goalMet ? 5 : 0);
+  p.stars += stars;
+  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at: Date.now() });
+
+  addXp(xp, events);
+  const match = CHAR_BY_ID[partner].el === SUBJECT_BY_ID[subject].el;
+  const cexp = Math.round(minutes * 10 * (match ? 1.5 : 1));
+  addCharExp(partner, cexp, events);
+  const battle = dealDamage(minutes, subject, events);
+
+  S.active = null;
+  save();
+  return { subject, minutes, goal, goalMet, xp, stars, cexp, match, partner, xpBefore, charBefore, battle, events };
+}
+
+// ---------- ガチャ ----------
+function rollRarity(forceMin) {
+  if (S.gacha.pity >= GACHA.pityMax - 1) return 3;
+  const x = Math.random() * 100;
+  let r = x < GACHA.rates[3] ? 3 : x < GACHA.rates[3] + GACHA.rates[2] ? 2 : 1;
+  if (forceMin && r < forceMin) r = forceMin;
+  return r;
+}
+
+function pullGacha(kind) {
+  const p = S.player;
+  const n = kind === 'ten' ? 10 : 1;
+  if (kind === 'ticket') { if (p.tickets < 1) return null; p.tickets--; }
+  else if (kind === 'one') { if (p.stars < GACHA.cost1) return null; p.stars -= GACHA.cost1; }
+  else if (kind === 'ten') { if (p.stars < GACHA.cost10) return null; p.stars -= GACHA.cost10; }
+
+  const results = [], events = [];
+  for (let k = 0; k < n; k++) {
+    const needR2 = n === 10 && k === 9 && !results.some(x => x.r >= 2);
+    const r = rollRarity(needR2 ? 2 : 0);
+    S.gacha.pity = r === 3 ? 0 : S.gacha.pity + 1;
+    S.gacha.total++;
+    const pool = CHARACTERS.filter(c => c.r === r);
+    const c = pool[Math.floor(Math.random() * pool.length)];
+    if (!S.chars[c.id]) {
+      S.chars[c.id] = { level: 1, exp: 0, count: 1 };
+      results.push({ id: c.id, r, isNew: true });
+    } else {
+      S.chars[c.id].count++;
+      const bonus = 100 * r;
+      addCharExp(c.id, bonus, events);
+      results.push({ id: c.id, r, isNew: false, bonus });
+    }
+  }
+  save();
+  return { results, events };
+}
+
+// ---------- ミッション ----------
+function ensureDaily() {
+  if (S.daily.date !== today()) { S.daily = { date: today(), claimed: [] }; save(); }
+}
+function todayStats() {
+  const t = today();
+  const ss = S.sessions.filter(s => s.date === t);
+  return {
+    minutes: ss.reduce((a, s) => a + s.minutes, 0),
+    subjects: new Set(ss.map(s => s.subject)).size,
+    goals: ss.filter(s => s.goalMet).length,
+    sessions: ss.length,
+    bySubject: SUBJECTS.map(sub => ({ sub, min: ss.filter(s => s.subject === sub.id).reduce((a, s) => a + s.minutes, 0) })),
+  };
+}
+function missionList() {
+  ensureDaily();
+  const t = todayStats();
+  const list = MISSIONS.map(m => {
+    const cur = Math.min(m.cur(t), m.max);
+    return { ...m, cur, done: cur >= m.max, claimed: S.daily.claimed.includes(m.id) };
+  });
+  const allDone = list.every(m => m.claimed);
+  list.push({ id: 'all', label: 'ミッションを ぜんぶ クリア！', reward: ALL_MISSION_BONUS,
+    cur: list.filter(m => m.claimed).length, max: MISSIONS.length, done: allDone, claimed: S.daily.claimed.includes('all'), bonus: true });
+  return list;
+}
+function claimableCount() { return missionList().filter(m => m.done && !m.claimed).length; }
+function claimMission(id) {
+  const m = missionList().find(x => x.id === id);
+  if (!m || !m.done || m.claimed) return null;
+  S.daily.claimed.push(id);
+  S.player.stars += m.reward.stars || 0;
+  S.player.tickets += m.reward.tickets || 0;
+  save();
+  return m.reward;
+}
+
+// ---------- タイマー ----------
+function startActive(subject, goal) {
+  S.active = { subject, goal, startedAt: Date.now(), pausedAt: null, pausedTotal: 0, goalNotified: false };
+  S.settings.lastGoal = goal;
+  S.settings.lastSubject = subject;
+  save();
+}
+function activeElapsedSec() {
+  const a = S.active;
+  if (!a) return 0;
+  const now = a.pausedAt || Date.now();
+  return Math.max(0, Math.floor((now - a.startedAt - a.pausedTotal) / 1000));
+}
+function togglePause() {
+  const a = S.active;
+  if (a.pausedAt) { a.pausedTotal += Date.now() - a.pausedAt; a.pausedAt = null; }
+  else a.pausedAt = Date.now();
+  save();
+}
+function cancelActive() { S.active = null; save(); }
+
+// ---------- ひょうじ ----------
+function funpun(n) { return [2, 5, 7, 9].includes(n % 10) ? 'ふん' : 'ぷん'; }
+function fmtMin(m) {
+  if (m < 60) return m + funpun(m);
+  const h = Math.floor(m / 60), r = m % 60;
+  return h + 'じかん' + (r ? r + funpun(r) : '');
+}
