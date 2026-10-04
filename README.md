@@ -2,7 +2,11 @@
 
 小学生向け「勉強したくなる」ソシャゲ風 Web アプリ。ビルド不要の静的サイト（HTML/CSS/JS）で、データはブラウザの localStorage に保存。
 
-## 起動
+## 遊ぶ
+
+https://kokitezuka1.github.io/manabi-quest/
+
+## 手元で起動
 
 ```bash
 python3 -m http.server 8765
