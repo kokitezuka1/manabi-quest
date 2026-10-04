@@ -41,7 +41,9 @@ function avatar(id, { size = 72, lv } = {}) {
   return `<div class="avatar st${st} r${c.r}" style="--el:${ELEMENTS[c.el].color};--sz:${size}px">
     ${icon(charIcon(id, level))}${st >= 2 ? '<span class="crown">♛</span>' : ''}</div>`;
 }
-function rarityTag(r) { return `<span class="rarity r${r}">${RARITY[r].stars}</span>`; }
+function rarityTag(r) { return `<span class="rank r${r}">${RARITY[r].label}</span>`; }
+// 限界突破の回数（◆が突破した回数）
+function lbTag(lb) { return `<span class="lb">${'◆'.repeat(lb)}${'◇'.repeat(LIMIT_BREAK.max - lb)}</span>`; }
 function elTag(el) { const e = ELEMENTS[el]; return `<span class="eltag" style="background:${e.color}">${e.icon}${e.name}</span>`; }
 function subjChip(id) { const s = SUBJECT_BY_ID[id]; return `<span class="chip" style="background:${s.color}">${s.icon} ${s.name}</span>`; }
 
@@ -70,7 +72,7 @@ function renderNav() {
   const items = [
     ['home', 'castle', 'ホーム', claimableCount()],
     ['adventure', 'treasure-map', '冒険', 0],
-    ['gacha', 'open-treasure-chest', 'ガチャ', S.player.tickets > 0 || S.player.stars >= GACHA.cost1 ? '!' : 0],
+    ['gacha', 'open-treasure-chest', 'ガチャ', S.player.tickets > 0 || S.player.stars >= GACHA.cost1 || contractCount() > 0 ? '!' : 0],
     ['zukan', 'battle-gear', '仲間', 0],
     ['records', 'scroll-unfurled', '記録', 0],
   ];
@@ -111,6 +113,7 @@ async function runEvents(events) {
         <h2>${ev.streak >= 2 ? `連続${ev.streak}日目！` : '今日も勉強おつかれさま！'}</h2>
         <p>${ev.streak >= 2 ? '毎日続けていてえらい！' : '毎日続けるとボーナスが増えていくぞ'}</p>
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
+        ${ev.contract ? contractGotHtml([ev.contract]) : ''}
         <button class="btn gold wide" data-v="ok">受け取る</button>`);
     } else if (ev.type === 'target') {
       Sound.levelup(); FX.confetti(140);
@@ -154,6 +157,7 @@ async function runEvents(events) {
         <div class="defeated">${ev.clears.map(i => { const s = stageInfo(i); return `<span>${icon(s.enemy.e)}<small>${s.enemy.n}</small></span>`; }).join('')}</div>
         <p>を倒した！</p>
         <div class="rw-big">⭐+${ev.stars}${ev.tickets ? ` 🎫+${ev.tickets}` : ''}</div>
+        ${ev.contracts && ev.contracts.length ? contractGotHtml(ev.contracts) : ''}
         ${nw ? `<div class="new-world" style="--b1:${nw.region.bg[0]};--b2:${nw.region.bg[1]}">✈️ 新しい地域へ出発！<br>
           <b>${nw.region.flag} ${nw.region.name}</b>${nw.loop ? `<br><small>伝説モード ループ${nw.loop + 1}</small>` : ''}</div>` : ''}
         <button class="btn gold wide" data-v="ok">次の街へ ✈️</button>`, { cls: 'shine' });
@@ -162,6 +166,10 @@ async function runEvents(events) {
     }
   }
   renderTopbar(); renderNav();
+}
+
+function contractGotHtml(kinds) {
+  return `<div class="contract-got">${kinds.map(k => `<span class="ct ${k}">📜 ${CONTRACTS[k].name}</span>`).join('')}<small>ガチャ画面で使えるよ</small></div>`;
 }
 
 // ---------- 初回 ----------
@@ -259,7 +267,8 @@ SCREENS.home = el => {
   const showGachaHint = S.gacha.total === 0 && S.player.tickets > 0;
   el.innerHTML = `${sceneHtml(st)}
     <button class="btn big gold pulse" id="start">${icon('crossed-swords', 'btn-ic')} 勉強スタート</button>
-    ${showGachaHint ? `<button class="card hint-card" id="ghint">🎫 ガチャチケットを持っています！<br><b>ガチャで新しい仲間をゲットしよう ▶</b></button>` : ''}
+    ${showGachaHint ? `<button class="card hint-card" id="ghint">🎫 ガチャチケットを持っています！<br><b>ガチャで新しい仲間をゲットしよう ▶</b></button>`
+      : contractCount() ? `<button class="card hint-card" id="ghint">📜 契約書を持っています！<br><b>ガチャ画面で使おう ▶</b></button>` : ''}
     <div class="card">
       <h3>🕒 今日の勉強 <span class="today-min">${fmtMin(t.minutes)}</span></h3>
       <div class="today-bar">${t.minutes ? t.bySubject.filter(x => x.min).map(x =>
@@ -270,7 +279,7 @@ SCREENS.home = el => {
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
   $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
-  if (showGachaHint) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
+  if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
     if (!b) return;
@@ -509,7 +518,7 @@ SCREENS.result = async (el, r) => {
 
   $('#row3').classList.add('show'); Sound.tick();
   countUp($('#rcexp'), 0, r.cexp, 700);
-  await animBar($('#cbar'), $('#clv'), { lv: r.charBefore.level, v: r.charBefore.exp }, { lv: pc.level, v: pc.exp }, charExpNeed, CHAR_MAX_LV);
+  await animBar($('#cbar'), $('#clv'), { lv: r.charBefore.level, v: r.charBefore.exp }, { lv: pc.level, v: pc.exp }, charExpNeed, charMaxLv(r.partner));
 
   // バトル
   $('#battle').classList.add('show');
@@ -641,65 +650,123 @@ SCREENS.gacha = el => {
     const colors = ['#ff6b9a', '#4fc3f7', '#ffd54f', '#81c784', '#ba68c8', '#ff8a65'];
     return `<i style="left:${8 + (i * 37) % 78}%;top:${18 + ((i * 53) % 60)}%;background:${colors[i % colors.length]}"></i>`;
   }).join('');
+  const owned = CONTRACT_ORDER.filter(k => S.contracts[k] > 0);
   el.innerHTML = `<div class="gacha">
     <h2 class="g-title">召喚ゲート</h2>
     <div class="machine" id="machine"><div class="dome">${caps}</div><div class="mbody"><div class="slot"></div><div class="handle" id="handle"></div></div></div>
-    <div class="pity">★★★確定まで あと<b>${left}</b>回</div>
+    <div class="pity">${rarityTag(5)}ランク確定まで あと<b>${left}</b>回</div>
     <div class="g-btns">
       <button class="btn gold" data-k="ticket" ${p.tickets < 1 ? 'disabled' : ''}>🎫 チケットで引く <small>残り${p.tickets}枚</small></button>
       <button class="btn" data-k="one" ${p.stars < GACHA.cost1 ? 'disabled' : ''}>⭐${GACHA.cost1}で1回引く</button>
-      <button class="btn pink" data-k="ten" ${p.stars < GACHA.cost10 ? 'disabled' : ''}>⭐${GACHA.cost10}で10連！<small>★★以上1体確定</small></button>
+      <button class="btn pink" data-k="ten" ${p.stars < GACHA.cost10 ? 'disabled' : ''}>⭐${GACHA.cost10}で10連！<small>${RARITY[GACHA.tenMin].label}ランク以上1体確定</small></button>
     </div>
-    <p class="muted small center">⭐は勉強1分につき1個もらえる</p>
-    <details class="card rates"><summary>排出確率</summary>
-      <p>★★★ ${GACHA.rates[3]}% ／ ★★ ${GACHA.rates[2]}% ／ ★ ${GACHA.rates[1]}%</p>
-      <p>${GACHA.pityMax}回引くまでに必ず★★★が出ます。<br>同じ仲間が出た場合は、その仲間の経験値になります。</p>
+    <p class="muted small center">⭐は勉強1分につき1個もらえる${p.stars < GACHA.cost1 ? `（あと${GACHA.cost1 - p.stars}個で1回引ける）` : ''}</p>
+    <div class="card contracts"><h3>📜 契約書</h3>
+      ${owned.length ? owned.map(k => `<div class="ct-row"><span class="ct ${k}">📜</span>
+        <div class="ct-info"><b>${CONTRACTS[k].name} ×${S.contracts[k]}</b><small>${CONTRACTS[k].desc}</small></div>
+        <button class="btn mini gold" data-c="${k}">使う</button></div>`).join('')
+        : '<p class="small muted">まだ持っていません</p>'}
+      <p class="small muted">ボスを倒すとA契約書、大陸の最後のボスを倒すとS選択契約書、${Object.keys(STREAK_CONTRACTS).join('日・')}日連続で勉強すると特別な契約書がもらえる</p>
+    </div>
+    <details class="card rates"><summary>排出確率とルール</summary>
+      <p>${RANKS.map(r => `${rarityTag(r)} ${GACHA.rates[r]}%`).join(' ／ ')}</p>
+      <p>${GACHA.pityMax}回引くまでに必ずSランクが出ます。10連では最後の1体が${RARITY[GACHA.tenMin].label}ランク以上になります。</p>
+      <p><b>限界突破</b>：同じ仲間が出ると限界突破（最大${LIMIT_BREAK.max}回）。1回ごとにレベルの上限が${LIMIT_BREAK.lvPer}上がり、強さが${Math.round(LIMIT_BREAK.powerPer * 100)}%アップ。最大まで突破したあとは経験値になります。</p>
+      <p><b>レベルの上限</b>：${RANKS.map(r => `${RARITY[r].label} Lv${RARITY[r].maxLv}`).join('／')}</p>
       <p>このガチャは勉強でためた⭐と🎫だけで引けます（お金は一切かかりません）。</p></details>
   </div>`;
   $$('.g-btns .btn', el).forEach(b => b.onclick = () => doPull(b.dataset.k));
+  $$('[data-c]', el).forEach(b => b.onclick = () => doContract(b.dataset.c));
 };
 
 async function doPull(kind) {
   const res = pullGacha(kind);
   if (!res) return;
   renderTopbar(); renderNav();
-  const best = Math.max(...res.results.map(x => x.r));
-  const fakeOut = best === 3 && Math.random() < 0.35;
   const handle = $('#handle');
   if (handle) handle.classList.add('turn');
+  await showSummon(res);
+}
+
+async function doContract(kind) {
+  const def = CONTRACTS[kind];
+  let pick = null;
+  if (def.pick) {
+    pick = await pickModal(def);
+    if (!pick) return;
+  } else if (!confirm(`${def.name}を使いますか？`)) return;
+  const res = useContract(kind, pick);
+  if (!res) return;
+  renderTopbar(); renderNav();
+  await showSummon(res, { known: def.pick });
+}
+
+// 選択契約書：仲間を選ぶ
+async function pickModal(def) {
+  const list = CHARACTERS.filter(c => c.r === def.r);
+  const m = openModal(`<h2>📜 ${def.name}</h2><p class="small">仲間にしたい1体を選んでね（持っている仲間なら限界突破）</p>
+    <div class="pick-grid">${list.map(c => {
+      const o = S.chars[c.id];
+      const full = o && (o.lb || 0) >= LIMIT_BREAK.max;
+      return `<button class="pick-cell ${o ? 'has' : ''}" data-p="${c.id}" style="--el:${ELEMENTS[c.el].color}">
+        ${o ? avatar(c.id, { size: 52 }) : `<div class="avatar r${c.r}" style="--el:${ELEMENTS[c.el].color};--sz:52px">${icon(c.forms[0])}</div>`}
+        <small>${o ? charName(c.id) : c.names[0]}</small>${elTag(c.el)}
+        <span class="pick-st">${o ? (full ? '突破MAX' : lbTag(o.lb || 0)) : '<b class="new-t">NEW</b>'}</span></button>`;
+    }).join('')}</div>
+    <button class="btn ghost wide" data-v="">やめる</button>`, { dismiss: true });
+  $$('.pick-cell', m.el).forEach(b => b.onclick = () => {
+    const c = CHAR_BY_ID[b.dataset.p];
+    if (confirm(`${S.chars[c.id] ? charName(c.id) : c.names[0]}にしますか？`)) { Sound.tap(); m.close(c.id); }
+  });
+  return m.done;
+}
+
+// 召喚の演出。高いランクは、カプセルの色が途中で変わる「昇格演出」が出ることがある
+async function showSummon(res, { known = false } = {}) {
+  const best = Math.max(...res.results.map(x => x.r));
+  let shown = best;
+  if (!known && best >= 4 && Math.random() < 0.45) shown = Math.max(2, best - 1 - (best === 5 && Math.random() < 0.5 ? 1 : 0));
   Sound.drum();
   const ov = document.createElement('div');
   ov.className = 'g-overlay';
-  ov.innerHTML = `<div class="g-stage"><div class="capsule drop c${fakeOut ? 2 : best}" id="cap"><div class="cap-top"></div><div class="cap-bot"></div></div>
+  ov.innerHTML = `<div class="g-stage"><div class="capsule drop c${shown}" id="cap"><div class="cap-top"></div><div class="cap-bot"></div></div>
+    <div class="g-rank hidden" id="grank"></div>
     <div class="g-tap hidden" id="gtap">タップして開けよう！</div></div>`;
   document.body.appendChild(ov);
   await sleep(1400);
   const cap = $('#cap', ov);
-  if (fakeOut) {
+  while (shown < best) {
     cap.classList.add('shake');
-    await sleep(700);
-    cap.classList.remove('c2'); cap.classList.add('c3', 'flash');
-    Sound.reveal(2); FX.burstAt(cap, 50, true);
-    await sleep(500);
+    await sleep(750);
+    cap.classList.remove('shake', 'flash', 'c' + shown);
+    shown++;
+    void cap.offsetWidth;
+    cap.classList.add('c' + shown, 'flash');
+    const gr = $('#grank', ov);
+    gr.innerHTML = `昇格！ ${rarityTag(shown)}`; gr.classList.remove('hidden', 'pop'); void gr.offsetWidth; gr.classList.add('pop');
+    Sound.reveal(shown - 1); FX.burstAt(cap, 30 + shown * 10, true);
+    await sleep(600);
   }
   $('#gtap', ov).classList.remove('hidden');
   await new Promise(r => ov.addEventListener('click', r, { once: true }));
   $('#gtap', ov).classList.add('hidden');
+  $('#grank', ov).classList.add('hidden');
   cap.classList.add('open');
   ov.classList.add('flashbg', 'rar' + best);
   Sound.reveal(best);
   await sleep(450);
-  FX.confetti(best === 3 ? 220 : best === 2 ? 90 : 30);
+  FX.confetti([0, 20, 40, 80, 140, 220][best]);
 
+  const multi = res.results.length > 1;
   const card = (x, i) => {
     const c = CHAR_BY_ID[x.id];
     return `<div class="g-card r${x.r}" style="animation-delay:${i * 0.12}s">
-      ${x.isNew ? '<span class="new">NEW!</span>' : ''}
-      ${avatar(x.id, { size: res.results.length > 1 ? 54 : 120 })}
-      ${rarityTag(x.r)}<b>${charName(x.id)}</b>${res.results.length === 1 ? elTag(c.el) : ''}
-      ${x.isNew ? '' : `<small>ダブり！ EXP+${x.bonus}</small>`}</div>`;
+      ${x.isNew ? '<span class="new">NEW!</span>' : x.lb ? '<span class="new lbup">突破!</span>' : ''}
+      ${avatar(x.id, { size: multi ? 54 : 120 })}
+      ${rarityTag(x.r)}<b>${charName(x.id)}</b>${multi ? '' : elTag(c.el)}
+      ${x.isNew ? '' : x.lb ? `<small>${multi ? lbTag(x.lb) : `限界突破！ ${lbTag(x.lb)}<br>レベル上限 Lv.${x.maxLv}`}</small>` : `<small>${multi ? '' : '突破MAX！ '}EXP+${x.bonus}</small>`}</div>`;
   };
-  const single = res.results.length === 1 ? res.results[0] : null;
+  const single = multi ? null : res.results[0];
   ov.querySelector('.g-stage').innerHTML = `<div class="g-results ${single ? 'single' : 'multi'}">${res.results.map(card).join('')}</div>
     <div class="g-actions">
       ${single && single.id !== S.partner ? `<button class="btn ghost" id="gpart">パートナーにする</button>` : ''}
@@ -723,22 +790,27 @@ SCREENS.zukan = el => {
   const st = charStage(o.level);
   const nextEvo = st < 2 ? EVOLVE_LV[st] : null;
   const sub = SUBJECT_BY_EL[c.el];
+  const max = charMaxLv(id);
   el.innerHTML = `<h2 class="page-title">仲間 <span class="muted">${owned} / ${CHARACTERS.length}</span></h2>
     <div class="card partner-card" style="--el:${ELEMENTS[c.el].color}">
       <div class="pc-tag">パートナー</div>
       <div class="bob">${avatar(id, { size: 110 })}</div>
-      <div class="pc-info"><div>${rarityTag(c.r)} ${elTag(c.el)}</div><h3>${charName(id)} <span class="lvl">Lv.${o.level}</span></h3>
-        <div class="bar cexp"><i style="width:${o.level >= CHAR_MAX_LV ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
+      <div class="pc-info"><div>${rarityTag(c.r)} ${elTag(c.el)} ${lbTag(o.lb || 0)}</div><h3>${charName(id)} <span class="lvl">Lv.${o.level}<small>/${max}</small></span></h3>
+        <div class="bar cexp"><i style="width:${o.level >= max ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
         <p class="small">⚔️ 強さ ${charPower(id)}　${sub.icon}${sub.name}でよく育つ</p>
-        <p class="small">${nextEvo ? `✨ Lv${nextEvo}で進化！` : '👑 最終形態！'}</p></div>
+        <p class="small">${o.level >= max ? (o.lb || 0) < LIMIT_BREAK.max ? '🔒 レベル上限！ 限界突破でもっと強くなれる' : '👑 これ以上は育たない' : nextEvo && nextEvo <= max ? `✨ Lv${nextEvo}で進化！` : nextEvo ? `🔒 進化（Lv${nextEvo}）には限界突破が必要` : '👑 最終形態！'}</p></div>
     </div>
-    <div class="zukan">${CHARACTERS.map(ch => {
-      const has = !!S.chars[ch.id];
-      return `<button class="z-cell ${has ? '' : 'unknown'} ${ch.id === S.partner ? 'is-partner' : ''}" data-id="${ch.id}" style="--el:${ELEMENTS[ch.el].color}">
-        ${has ? avatar(ch.id, { size: 56 }) : `<div class="avatar silhouette" style="--sz:56px">${icon(ch.forms[0])}</div>`}
-        <small>${has ? charName(ch.id) : '？？？'}</small>
-        <span class="z-meta">${has ? `Lv.${S.chars[ch.id].level}` : ''} <span class="rarity r${ch.r}">${RARITY[ch.r].stars}</span></span></button>`;
-    }).join('')}</div>`;
+    ${RANKS.map(r => {
+      const list = CHARACTERS.filter(ch => ch.r === r);
+      return `<h3 class="z-rank">${rarityTag(r)} ${RARITY[r].name} <span class="muted">${list.filter(ch => S.chars[ch.id]).length} / ${list.length}</span></h3>
+      <div class="zukan">${list.map(ch => {
+        const co = S.chars[ch.id];
+        return `<button class="z-cell ${co ? '' : 'unknown'} ${ch.id === S.partner ? 'is-partner' : ''}" data-id="${ch.id}" style="--el:${ELEMENTS[ch.el].color}">
+          ${co ? avatar(ch.id, { size: 56 }) : `<div class="avatar silhouette" style="--sz:56px">${icon(ch.forms[0])}</div>`}
+          <small>${co ? charName(ch.id) : '？？？'}</small>
+          <span class="z-meta">${co ? `Lv.${co.level} ${lbTag(co.lb || 0)}` : rarityTag(ch.r)}</span></button>`;
+      }).join('')}</div>`;
+    }).join('')}`;
   $$('.z-cell', el).forEach(b => b.onclick = () => { Sound.tap(); charDetail(b.dataset.id); });
 };
 
@@ -746,21 +818,23 @@ async function charDetail(id) {
   const c = CHAR_BY_ID[id], o = S.chars[id];
   if (!o) {
     await modal(`<div class="m-av"><div class="avatar silhouette" style="--sz:110px">${icon(c.forms[0])}</div></div>
-      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p><p>ガチャで出会えるかも…！</p>
+      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p><p>ガチャや契約書で出会えるかも…！</p>
       <button class="btn gold wide" data-v="ok">閉じる</button>`, { dismiss: true });
     return;
   }
   const st = charStage(o.level);
   const sub = SUBJECT_BY_EL[c.el];
+  const max = charMaxLv(id);
   const evo = c.forms.map((f, i) => i <= st
     ? `<div class="evo-step" style="color:${ELEMENTS[c.el].color}">${icon(f)}<small>${c.names[i]}</small></div>`
     : `<div class="evo-step locked">${icon(f, 'sil')}<small>Lv${EVOLVE_LV[i - 1]}で進化</small></div>`).join('<span class="path">›</span>');
   const isP = id === S.partner;
   const v = await modal(`<div class="m-av bounce">${avatar(id, { size: 120 })}</div>
     <h2>${charName(id)}</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p>
-    <div class="stat-grid"><div><small>レベル</small><b>${o.level}</b></div><div><small>強さ</small><b>${charPower(id)}</b></div><div><small>出会った数</small><b>${o.count}</b></div></div>
-    <div class="bar cexp"><i style="width:${o.level >= CHAR_MAX_LV ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
-    <p class="small">${sub.icon}${sub.name}を勉強すると経験値×1.5</p>
+    <div class="stat-grid"><div><small>レベル</small><b>${o.level}<small>/${max}</small></b></div><div><small>強さ</small><b>${charPower(id)}</b></div><div><small>限界突破</small><b>${o.lb || 0}<small>/${LIMIT_BREAK.max}</small></b></div></div>
+    <div class="bar cexp"><i style="width:${o.level >= max ? '100%' : pct(o.exp, charExpNeed(o.level))}"></i></div>
+    <p class="small">${lbTag(o.lb || 0)}　${sub.icon}${sub.name}を勉強すると経験値×1.5</p>
+    ${o.level >= max && (o.lb || 0) < LIMIT_BREAK.max ? '<p class="small warn">🔒 レベル上限です。ガチャや契約書で同じ仲間が出ると限界突破して、もっと育てられます</p>' : ''}
     <div class="evo-line">${evo}</div>
     <div class="m-btns"><button class="btn ghost" data-v="close">閉じる</button>
     ${isP ? '<button class="btn" disabled>パートナー</button>' : '<button class="btn gold" data-v="partner">パートナーにする</button>'}</div>`, { dismiss: true });

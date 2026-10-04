@@ -22,7 +22,9 @@ function defaultState() {
     sessions: [],              // { subject, minutes, goal, goalMet, date, at }
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
-    gacha: { pity: 0, total: 0 },
+    gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
+    contracts: {},             // 持っている契約書 { a: 枚数, s: 枚数, ssel: 枚数 }
+    gv: 2,                     // ガチャのルールの版（2 = D〜Sランク・限界突破）
     settings: { sound: true, lastGoal: 15, lastSubject: null },
     active: null,              // タイマー実行中の情報
     parent: defaultParent(),   // 保護者ページで決める目標時間と優先教科
@@ -48,10 +50,10 @@ function normalize(d) {
   const base = defaultState();
   const parent = { ...base.parent, ...(d.parent || {}) };
   parent.target = { ...base.parent.target, ...(parent.target || {}) };
-  return migrate({ ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) }, parent });
+  return migrate({ ...base, ...d, settings: { ...base.settings, ...(d.settings || {}) }, parent, contracts: { ...(d.contracts || {}) } }, d.gv || 1);
 }
 // 旧データを今の形に直す
-function migrate(st) {
+function migrate(st, gv) {
   // 冒険の進み具合：アメリカを回っている途中なら、クリアした数だけ新しいアメリカの旅を進める。
   // ヨーロッパ以降にいるなら、同じ街に移す。
   if (!st.stage.ver) {
@@ -68,6 +70,13 @@ function migrate(st) {
   }
   st.chars = chars;
   if (st.partner && !CHAR_BY_ID[st.partner]) st.partner = OLD_CHAR_IDS[st.partner] || Object.keys(chars)[0] || null;
+  // ★1〜3のガチャ → D〜Sランク：今までのダブりを限界突破に変え、リニューアル記念にA契約書を1枚
+  if (gv < 2) {
+    for (const o of Object.values(st.chars)) o.lb = Math.min(LIMIT_BREAK.max, Math.max(0, (o.count || 1) - 1));
+    st.gacha = { ...st.gacha, pity: Math.min(st.gacha.pity || 0, GACHA.pityMax - 1) };
+    if (st.player) st.contracts.a = (st.contracts.a || 0) + 1;
+    st.gv = 2;
+  }
   return st;
 }
 function save() {
@@ -95,12 +104,13 @@ function startGame(name, starterId) {
   const keep = { parent: S.parent, cloud: S.cloud };   // 連携と保護者の設定は引き継ぐ
   S = { ...defaultState(), ...keep };
   S.player = { name, level: 1, xp: 0, stars: 0, tickets: 1, createdAt: Date.now() };
-  S.chars[starterId] = { level: 1, exp: 0, count: 1 };
+  S.chars[starterId] = { level: 1, exp: 0, count: 1, lb: 0 };
   S.partner = starterId;
   save();
 }
 
-function xpNeed(lv) { return 40 + lv * 20; }
+// レベルが上がるほど、次のレベルまでに必要な経験値が大きく増える
+function xpNeed(lv) { return Math.round(40 + lv * 20 + lv * lv * 1.5); }
 function titleFor(lv) {
   let t = TITLES[0][1];
   for (const [l, name] of TITLES) if (lv >= l) t = name;
@@ -126,25 +136,28 @@ function addXp(amount, events) {
 }
 
 // ---------- 仲間 ----------
-function charExpNeed(lv) { return 30 + lv * 15; }
+function charExpNeed(lv) { return 30 + lv * 15 + lv * lv; }
+function charLb(id) { return S.chars[id] ? S.chars[id].lb || 0 : 0; }
+// レベルの上限：ランクごとの上限 + 限界突破1回ごとに +4
+function charMaxLv(id, lb = charLb(id)) { return RARITY[CHAR_BY_ID[id].r].maxLv + lb * LIMIT_BREAK.lvPer; }
 function charStage(lv) { return lv >= EVOLVE_LV[1] ? 2 : lv >= EVOLVE_LV[0] ? 1 : 0; }
 function charLevel(id) { return S.chars[id] ? S.chars[id].level : 1; }
 function charIcon(id, lv) { return CHAR_BY_ID[id].forms[charStage(lv ?? charLevel(id))]; }
 function charName(id, lv) { return CHAR_BY_ID[id].names[charStage(lv ?? charLevel(id))]; }
 function charPower(id) {
-  const c = CHAR_BY_ID[id];
-  return RARITY[c.r].base + charLevel(id) * c.r;
+  const rk = RARITY[CHAR_BY_ID[id].r];
+  return Math.round((rk.base + charLevel(id) * rk.perLv) * (1 + charLb(id) * LIMIT_BREAK.powerPer));
 }
 
 function addCharExp(id, amount, events) {
   const o = S.chars[id];
-  const from = o.level;
+  const from = o.level, max = charMaxLv(id);
   o.exp += amount;
-  while (o.level < CHAR_MAX_LV && o.exp >= charExpNeed(o.level)) {
+  while (o.level < max && o.exp >= charExpNeed(o.level)) {
     o.exp -= charExpNeed(o.level);
     o.level++;
   }
-  if (o.level >= CHAR_MAX_LV) o.exp = 0;
+  if (o.level >= max) o.exp = 0;   // 上限に達したら、限界突破するまで育たない
   if (o.level > from) events.push({ type: 'charlv', id, from, to: o.level });
   if (charStage(o.level) > charStage(from)) events.push({ type: 'evolve', id, fromLv: from, toLv: o.level });
 }
@@ -158,9 +171,8 @@ function stageInfo(i) {
   const region = REGION_BY_ID[city.region];
   const sub = CITIES.filter(c => c.region === city.region).indexOf(city);
   const enemy = { e: city.e, n: city.n, weak: SUBJECT_BY_ID[city.subject].el, boss: !!city.boss };
-  // 旧バージョン（1周24都市）と同じ上がり方で、都市が増えた分だけ1都市のHPを軽くする
-  const j = i * 24 / STAGES_PER_LOOP;
-  const raw = Math.max(100, (120 + j * 90 + j * j * 6) * 0.6) * (enemy.boss ? 1.6 : 1);
+  // 進むほど敵のHPがどんどん増える（仲間を育てて強くしないと倒しにくくなる）
+  const raw = (100 + i * 60 + i * i * 2.2) * (enemy.boss ? 1.6 : 1);
   return { i, loop, k, city, region, world: region, regionIdx: REGIONS.indexOf(region), sub, enemy, boss: enemy.boss, hp: Math.round(raw / 10) * 10 };
 }
 function currentStage() { return stageInfo(S.stage.i); }
@@ -190,15 +202,20 @@ function dealDamage(minutes, subjectId, events) {
   }
   if (clears.length) {
     let stars = 0, tickets = 0;
+    const contracts = [];
     for (const ci of clears) {
       const st = stageInfo(ci);
       stars += st.boss ? 40 : 15;
-      if (st.boss) tickets += 1;
+      if (st.boss) {
+        tickets += 1;
+        contracts.push(st.region.last ? 'ssel' : 'a');   // ボスを倒すとA契約書、大陸の最後のボスならS選択契約書
+      }
     }
     S.player.stars += stars;
     S.player.tickets += tickets;
+    contracts.forEach(addContract);
     const newWorld = clears.some(ci => stageInfo(ci).boss) ? stageInfo(S.stage.i) : null;
-    events.push({ type: 'clear', clears, stars, tickets, newWorld, arrive: S.stage.i });
+    events.push({ type: 'clear', clears, stars, tickets, contracts, newWorld, arrive: S.stage.i });
   }
   return { start, startDmg, firstWeak, total, clears, endStage: S.stage.i, endDmg: S.stage.dmg };
 }
@@ -216,9 +233,11 @@ function touchStreak(events) {
   S.streak.last = t;
   const stars = 5 + Math.min(S.streak.count, 7) * 5;
   const tickets = [3, 7, 14, 21, 30, 50, 100].includes(S.streak.count) ? (S.streak.count >= 7 ? 2 : 1) : 0;
+  const contract = STREAK_CONTRACTS[S.streak.count] || null;
   S.player.stars += stars;
   S.player.tickets += tickets;
-  events.push({ type: 'login', streak: S.streak.count, stars, tickets });
+  if (contract) addContract(contract);
+  events.push({ type: 'login', streak: S.streak.count, stars, tickets, contract });
 }
 
 // ---------- 勉強終了 ----------
@@ -275,11 +294,33 @@ function saveParent(parent) {
 
 // ---------- ガチャ ----------
 function rollRarity(forceMin) {
-  if (S.gacha.pity >= GACHA.pityMax - 1) return 3;
-  const x = Math.random() * 100;
-  let r = x < GACHA.rates[3] ? 3 : x < GACHA.rates[3] + GACHA.rates[2] ? 2 : 1;
+  if (S.gacha.pity >= GACHA.pityMax - 1) return 5;
+  let x = Math.random() * 100, r = 5;
+  while (r > 1 && x >= GACHA.rates[r]) { x -= GACHA.rates[r]; r--; }
   if (forceMin && r < forceMin) r = forceMin;
   return r;
+}
+function randomChar(r) {
+  const pool = CHARACTERS.filter(c => c.r === r);
+  return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+// 仲間を手に入れる。持っていなければ仲間に、持っていれば限界突破（最大まで突破していたら経験値）
+function gainChar(id, events) {
+  const r = CHAR_BY_ID[id].r;
+  const o = S.chars[id];
+  if (!o) {
+    S.chars[id] = { level: 1, exp: 0, count: 1, lb: 0 };
+    return { id, r, isNew: true };
+  }
+  o.count++;
+  if ((o.lb || 0) < LIMIT_BREAK.max) {
+    o.lb = (o.lb || 0) + 1;
+    return { id, r, isNew: false, lb: o.lb, maxLv: charMaxLv(id) };
+  }
+  const bonus = 100 * r;
+  addCharExp(id, bonus, events);
+  return { id, r, isNew: false, bonus };
 }
 
 function pullGacha(kind) {
@@ -291,22 +332,29 @@ function pullGacha(kind) {
 
   const results = [], events = [];
   for (let k = 0; k < n; k++) {
-    const needR2 = n === 10 && k === 9 && !results.some(x => x.r >= 2);
-    const r = rollRarity(needR2 ? 2 : 0);
-    S.gacha.pity = r === 3 ? 0 : S.gacha.pity + 1;
+    const needMin = n === 10 && k === 9 && !results.some(x => x.r >= GACHA.tenMin);
+    const r = rollRarity(needMin ? GACHA.tenMin : 0);
+    S.gacha.pity = r === 5 ? 0 : S.gacha.pity + 1;
     S.gacha.total++;
-    const pool = CHARACTERS.filter(c => c.r === r);
-    const c = pool[Math.floor(Math.random() * pool.length)];
-    if (!S.chars[c.id]) {
-      S.chars[c.id] = { level: 1, exp: 0, count: 1 };
-      results.push({ id: c.id, r, isNew: true });
-    } else {
-      S.chars[c.id].count++;
-      const bonus = 100 * r;
-      addCharExp(c.id, bonus, events);
-      results.push({ id: c.id, r, isNew: false, bonus });
-    }
+    results.push(gainChar(randomChar(r), events));
   }
+  save();
+  return { results, events };
+}
+
+// ---------- 契約書 ----------
+function addContract(kind) { S.contracts[kind] = (S.contracts[kind] || 0) + 1; }
+function contractCount() { return Object.values(S.contracts).reduce((a, n) => a + n, 0); }
+// 契約書を使う。選択契約書なら pickId で仲間を選ぶ
+function useContract(kind, pickId) {
+  const def = CONTRACTS[kind];
+  if (!def || !(S.contracts[kind] > 0)) return null;
+  const id = def.pick ? pickId : randomChar(def.r);
+  if (!CHAR_BY_ID[id] || CHAR_BY_ID[id].r !== def.r) return null;
+  S.contracts[kind]--;
+  if (!S.contracts[kind]) delete S.contracts[kind];
+  const events = [];
+  const results = [gainChar(id, events)];
   save();
   return { results, events };
 }

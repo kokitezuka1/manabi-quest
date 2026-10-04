@@ -22,32 +22,85 @@ const ELEMENTS = {
 };
 const SUBJECT_BY_EL = Object.fromEntries(SUBJECTS.map(s => [s.el, s]));
 
+// ランク（D〜S）。base + level×perLv が強さ、maxLv はレベルの上限（限界突破で上がる）
 const RARITY = {
-  1: { stars: '★',   name: 'コモン',     base: 5,  color: '#9aa7c2' },
-  2: { stars: '★★',  name: 'レア',       base: 9,  color: '#5aa9ff' },
-  3: { stars: '★★★', name: 'レジェンド', base: 14, color: '#ffc83d' },
+  1: { label: 'D', name: 'Dランク', base: 4,  perLv: 1,   maxLv: 20, color: '#9aa3b8' },
+  2: { label: 'C', name: 'Cランク', base: 6,  perLv: 1.5, maxLv: 25, color: '#4fd18b' },
+  3: { label: 'B', name: 'Bランク', base: 9,  perLv: 2,   maxLv: 30, color: '#4aa8ff' },
+  4: { label: 'A', name: 'Aランク', base: 12, perLv: 2.5, maxLv: 35, color: '#c07bff' },
+  5: { label: 'S', name: 'Sランク', base: 16, perLv: 3,   maxLv: 40, color: '#ffc83d' },
 };
+const RANKS = [5, 4, 3, 2, 1];   // 表示順（S→D）
+// 限界突破：同じ仲間が出るたびに +1（最大5回）。1回ごとにレベル上限 +4、強さ +10%
+const LIMIT_BREAK = { max: 5, lvPer: 4, powerPer: 0.1 };
 
-// forms は js/icons.js のアイコン名
+// forms は js/icons.js のアイコン名。r はランク（1=D 〜 5=S）
 const CHARACTERS = [
-  { id: 'flare',   el: 'fire',    r: 1, forms: ['fox-head', 'wolf-head', 'wolf-howl'], names: ['フレアフォックス', 'ブレイズウルフ', 'インフェルノウルフ'] },
-  { id: 'fang',    el: 'fire',    r: 2, forms: ['saber-toothed-cat-head', 'tiger-head', 'lion'], names: ['サーベルファング', 'バーンタイガー', 'レグルス'] },
-  { id: 'drake',   el: 'fire',    r: 3, forms: ['wyvern', 'dragon-head', 'spiked-dragon-head'], names: ['ワイバーン', 'ドラグーン', 'イグニス・ドラゴン'] },
-  { id: 'vine',    el: 'flower',  r: 1, forms: ['carnivorous-plant', 'tree-face', 'ent-mouth'], names: ['ヴァインファング', 'トレント', 'エルダー・トレント'] },
-  { id: 'stag',    el: 'flower',  r: 2, forms: ['deer-head', 'stag-head', 'centaur'], names: ['フォレストディア', 'グランドスタッグ', 'ケンタウロス'] },
-  { id: 'griffin', el: 'flower',  r: 3, forms: ['owl', 'eagle-head', 'griffin-symbol'], names: ['ミネルヴァ', 'ストームイーグル', 'グリフォン'] },
-  { id: 'fin',     el: 'water',   r: 1, forms: ['shark-fin', 'shark-jaws', 'sperm-whale'], names: ['シャークフィン', 'メガロドン', 'リヴァイアサン'] },
-  { id: 'abyss',   el: 'water',   r: 2, forms: ['fish-monster', 'angler-fish', 'sea-serpent'], names: ['ディープフィッシュ', 'アビスアングラー', 'シーサーペント'] },
-  { id: 'hydra',   el: 'water',   r: 3, forms: ['seahorse', 'sea-dragon', 'hydra'], names: ['シーホース', 'シードラゴン', 'ヒュドラ'] },
-  { id: 'bot',     el: 'mystery', r: 1, forms: ['spider-bot', 'vintage-robot', 'robot-golem'], names: ['スパイダーボット', 'ギアソルジャー', 'アイアンゴーレム'] },
-  { id: 'cyborg',  el: 'mystery', r: 2, forms: ['android-mask', 'cyborg-face', 'battle-mech'], names: ['アンドロイド', 'サイボーグ', 'バトルメック'] },
-  { id: 'mech',    el: 'mystery', r: 3, forms: ['mecha-head', 'megabot', 'missile-mech'], names: ['メカヘッド', 'メガボット', 'オメガ・メック'] },
-  { id: 'bull',    el: 'earth',   r: 1, forms: ['boar', 'bull', 'minotaur'], names: ['ワイルドボア', 'バイソン', 'ミノタウロス'] },
-  { id: 'golem',   el: 'earth',   r: 2, forms: ['golem-head', 'rock-golem', 'metal-golem-head'], names: ['ゴーレム', 'ロックゴーレム', 'ミスリルゴーレム'] },
-  { id: 'rex',     el: 'earth',   r: 3, forms: ['triceratops-head', 'mammoth', 'dinosaur-rex'], names: ['トリケラトプス', 'マンモス', 'キング・レックス'] },
-  { id: 'knight',  el: 'light',   r: 1, forms: ['centurion-helmet', 'black-knight-helm', 'mounted-knight'], names: ['ソルジャー', 'ナイト', 'パラディン'] },
-  { id: 'shinobi', el: 'light',   r: 2, forms: ['ninja-head', 'ninja-armor', 'ninja-heroic-stance'], names: ['シノビ', 'カゲムシャ', '影の大将'] },
-  { id: 'pegasus', el: 'light',   r: 3, forms: ['horse-head', 'unicorn', 'pegasus'], names: ['ホワイトホース', 'ユニコーン', 'セイント・ペガサス'] },
+  // ---- Dランク ----
+  { id: 'chick',   el: 'fire',    r: 1, forms: ['chicken', 'rooster', 'egyptian-bird'], names: ['ピヨフレア', 'バーンルースター', 'ホルスバード'] },
+  { id: 'ape',     el: 'fire',    r: 1, forms: ['monkey', 'mandrill-head', 'ifrit'], names: ['ヒザル', 'フレイムマンドリル', 'イフリート'] },
+  { id: 'shroom',  el: 'flower',  r: 1, forms: ['mushroom', 'mushrooms-cluster', 'super-mushroom'], names: ['キノコン', 'キノコロニー', 'キングマッシュ'] },
+  { id: 'worm',    el: 'flower',  r: 1, forms: ['caterpillar', 'butterfly', 'fairy'], names: ['リーフワーム', 'バタフライ', 'フェアリー'] },
+  { id: 'duck',    el: 'water',   r: 1, forms: ['plastic-duck', 'duck', 'swan'], names: ['アヒルン', 'アクアダック', 'スノースワン'] },
+  { id: 'crab',    el: 'water',   r: 1, forms: ['shrimp', 'sad-crab', 'crab'], names: ['エビッコ', 'バブルクラブ', 'キングクラブ'] },
+  { id: 'drone',   el: 'mystery', r: 1, forms: ['delivery-drone', 'robot-grab', 'mechanical-arm'], names: ['ミニドローン', 'アームボット', 'メカアーム'] },
+  { id: 'bug',     el: 'mystery', r: 1, forms: ['spotted-bug', 'long-antennae-bug', 'walking-scout'], names: ['ビリムシ', 'エレキバグ', 'スカウトボット'] },
+  { id: 'mole',    el: 'earth',   r: 1, forms: ['mole', 'badger', 'bear-head'], names: ['モグラン', 'アナグマ', 'グリズリー'] },
+  { id: 'sheep',   el: 'earth',   r: 1, forms: ['sheep', 'goat', 'buffalo-head'], names: ['メェメェ', 'ロックゴート', 'バッファロー'] },
+  { id: 'monk',    el: 'light',   r: 1, forms: ['monk-face', 'wizard-face', 'hooded-figure'], names: ['アコライト', 'ウィザード', 'ミスティック'] },
+  { id: 'viking',  el: 'light',   r: 1, forms: ['viking-helmet', 'viking-head', 'barbarian'], names: ['ヴァイキング', 'シーウォリアー', 'バーバリアン'] },
+  // ---- Cランク ----
+  { id: 'flare',   el: 'fire',    r: 2, forms: ['fox-head', 'wolf-head', 'wolf-howl'], names: ['フレアフォックス', 'ブレイズウルフ', 'インフェルノウルフ'] },
+  { id: 'hound',   el: 'fire',    r: 2, forms: ['basset-hound-head', 'hound', 'hyena-head'], names: ['ヒノワンコ', 'ファイアハウンド', 'ヘルハイエナ'] },
+  { id: 'vine',    el: 'flower',  r: 2, forms: ['carnivorous-plant', 'tree-face', 'ent-mouth'], names: ['ヴァインファング', 'トレント', 'エルダー・トレント'] },
+  { id: 'frog',    el: 'flower',  r: 2, forms: ['frog', 'toad-teeth', 'frog-prince'], names: ['ケロッパ', 'ガマグチ', 'カエルの王子'] },
+  { id: 'fin',     el: 'water',   r: 2, forms: ['shark-fin', 'shark-jaws', 'sperm-whale'], names: ['シャークフィン', 'メガロドン', 'リヴァイアサン'] },
+  { id: 'squid',   el: 'water',   r: 2, forms: ['jellyfish', 'squid', 'squid-head'], names: ['プカプカ', 'イカスミン', 'ダイオウイカ'] },
+  { id: 'bot',     el: 'mystery', r: 2, forms: ['spider-bot', 'vintage-robot', 'robot-golem'], names: ['スパイダーボット', 'ギアソルジャー', 'アイアンゴーレム'] },
+  { id: 'turret',  el: 'mystery', r: 2, forms: ['sentry-gun', 'tesla-turret', 'walking-turret'], names: ['セントリー', 'テスラタレット', 'メカウォーカー'] },
+  { id: 'bull',    el: 'earth',   r: 2, forms: ['boar', 'bull', 'minotaur'], names: ['ワイルドボア', 'バイソン', 'ミノタウロス'] },
+  { id: 'raptor',  el: 'earth',   r: 2, forms: ['dinosaur-egg', 'velociraptor', 'ninja-velociraptor'], names: ['ダイノエッグ', 'ラプトル', 'シノビラプトル'] },
+  { id: 'knight',  el: 'light',   r: 2, forms: ['centurion-helmet', 'black-knight-helm', 'mounted-knight'], names: ['ソルジャー', 'ナイト', 'パラディン'] },
+  { id: 'spartan', el: 'light',   r: 2, forms: ['spartan-helmet', 'crested-helmet', 'spartan'], names: ['ホプリテス', 'クレストナイト', 'スパルタン'] },
+  // ---- Bランク ----
+  { id: 'warlord', el: 'fire',    r: 3, forms: ['horned-helm', 'brutal-helm', 'warlord-helmet'], names: ['ファイアソルジャー', 'ブレイズナイト', 'ウォーロード'] },
+  { id: 'gecko',   el: 'fire',    r: 3, forms: ['gecko', 'chameleon-glyph', 'horned-reptile'], names: ['ヒトカゲッコー', 'フレアカメレオン', 'ホーンドドレイク'] },
+  { id: 'mantis',  el: 'flower',  r: 3, forms: ['ladybug', 'flying-beetle', 'praying-mantis'], names: ['テントウ', 'グリーンビートル', 'キングマンティス'] },
+  { id: 'toucan',  el: 'flower',  r: 3, forms: ['kiwi-bird', 'toucan', 'parrot-head'], names: ['キウイ', 'トゥーカン', 'ジャングルパロット'] },
+  { id: 'turtle',  el: 'water',   r: 3, forms: ['turtle', 'sea-turtle', 'tortoise'], names: ['カメット', 'シータートル', 'タートルキング'] },
+  { id: 'heron',   el: 'water',   r: 3, forms: ['seagull', 'heron', 'shoebill-stork'], names: ['カモメン', 'アオサギ', 'ハシビロコウ'] },
+  { id: 'astro',   el: 'mystery', r: 3, forms: ['astronaut-helmet', 'samus-helmet', 'starfighter'], names: ['アストロノーツ', 'パワードスーツ', 'スターファイター'] },
+  { id: 'tesla',   el: 'mystery', r: 3, forms: ['electric', 'thunderball', 'tesla-coil'], names: ['ボルト', 'サンダーボール', 'テスラコイル'] },
+  { id: 'dwarf',   el: 'earth',   r: 3, forms: ['dwarf-face', 'dwarf-helmet', 'dwarf-king'], names: ['ドワーフ', 'ドワーフ戦士', 'ドワーフキング'] },
+  { id: 'sauro',   el: 'earth',   r: 3, forms: ['parasaurolophus', 'stegosaurus-scales', 'sauropod-head'], names: ['パラサウルス', 'ステゴサウルス', 'ブラキオサウルス'] },
+  { id: 'holy',    el: 'light',   r: 3, forms: ['visored-helm', 'light-helm', 'heavy-helm'], names: ['スクワイア', 'ホーリーナイト', 'ガーディアン'] },
+  { id: 'king',    el: 'light',   r: 3, forms: ['king', 'old-king', 'throne-king'], names: ['プリンス', 'キング', 'エンペラー'] },
+  // ---- Aランク ----
+  { id: 'fang',    el: 'fire',    r: 4, forms: ['saber-toothed-cat-head', 'tiger-head', 'lion'], names: ['サーベルファング', 'バーンタイガー', 'レグルス'] },
+  { id: 'wyrm',    el: 'fire',    r: 4, forms: ['dragon-orb', 'dragon-spiral', 'drakkar-dragon'], names: ['ドラゴンオーブ', 'スパイラルドラゴン', 'リュウオウ'] },
+  { id: 'stag',    el: 'flower',  r: 4, forms: ['deer-head', 'stag-head', 'centaur'], names: ['フォレストディア', 'グランドスタッグ', 'ケンタウロス'] },
+  { id: 'elf',     el: 'flower',  r: 4, forms: ['woman-elf-face', 'archer', 'elf-helmet'], names: ['エルフ', 'フォレストアーチャー', 'エルフロード'] },
+  { id: 'abyss',   el: 'water',   r: 4, forms: ['fish-monster', 'angler-fish', 'sea-serpent'], names: ['ディープフィッシュ', 'アビスアングラー', 'シーサーペント'] },
+  { id: 'dolphin', el: 'water',   r: 4, forms: ['dolphin', 'whale-tail', 'big-wave'], names: ['ドルフィン', 'ブルーホエール', 'タイダルウェイブ'] },
+  { id: 'cyborg',  el: 'mystery', r: 4, forms: ['android-mask', 'cyborg-face', 'battle-mech'], names: ['アンドロイド', 'サイボーグ', 'バトルメック'] },
+  { id: 'magnet',  el: 'mystery', r: 4, forms: ['robot-helmet', 'magnet-man', 'mecha-mask'], names: ['ロボヘルム', 'マグネットマン', 'ギガメカ'] },
+  { id: 'golem',   el: 'earth',   r: 4, forms: ['golem-head', 'rock-golem', 'metal-golem-head'], names: ['ゴーレム', 'ロックゴーレム', 'ミスリルゴーレム'] },
+  { id: 'scarab',  el: 'earth',   r: 4, forms: ['scarab-beetle', 'gold-scarab', 'pschent-double-crown'], names: ['スカラベ', 'ゴールドスカラベ', 'ファラオ'] },
+  { id: 'shinobi', el: 'light',   r: 4, forms: ['ninja-head', 'ninja-armor', 'ninja-heroic-stance'], names: ['シノビ', 'カゲムシャ', '影の大将'] },
+  { id: 'angel',   el: 'light',   r: 4, forms: ['spiked-halo', 'angel-outfit', 'angel-wings'], names: ['ホーリーチャイルド', 'エンジェル', 'アークエンジェル'] },
+  // ---- Sランク ----
+  { id: 'drake',   el: 'fire',    r: 5, forms: ['wyvern', 'dragon-head', 'spiked-dragon-head'], names: ['ワイバーン', 'ドラグーン', 'イグニス・ドラゴン'] },
+  { id: 'phoenix', el: 'fire',    r: 5, forms: ['hummingbird', 'fire-dash', 'eagle-emblem'], names: ['ヒバナドリ', 'ブレイズウィング', 'フェニックス'] },
+  { id: 'griffin', el: 'flower',  r: 5, forms: ['owl', 'eagle-head', 'griffin-symbol'], names: ['ミネルヴァ', 'ストームイーグル', 'グリフォン'] },
+  { id: 'yggdra',  el: 'flower',  r: 5, forms: ['sprout', 'oak', 'holy-oak'], names: ['メバエ', 'グレートオーク', 'ユグドラシル'] },
+  { id: 'hydra',   el: 'water',   r: 5, forms: ['seahorse', 'sea-dragon', 'hydra'], names: ['シーホース', 'シードラゴン', 'ヒュドラ'] },
+  { id: 'triton',  el: 'water',   r: 5, forms: ['mermaid', 'triton-head', 'trident'], names: ['マーメイド', 'トリトン', 'ポセイドン'] },
+  { id: 'mech',    el: 'mystery', r: 5, forms: ['mecha-head', 'megabot', 'missile-mech'], names: ['メカヘッド', 'メガボット', 'オメガ・メック'] },
+  { id: 'raiju',   el: 'mystery', r: 5, forms: ['mouse', 'seated-mouse', 'spark-spirit'], names: ['ビリネズミ', 'エレキマウス', 'ライジュウ'] },
+  { id: 'rex',     el: 'earth',   r: 5, forms: ['triceratops-head', 'mammoth', 'dinosaur-rex'], names: ['トリケラトプス', 'マンモス', 'キング・レックス'] },
+  { id: 'behemoth', el: 'earth',  r: 5, forms: ['rhinoceros-horn', 'elephant', 'elephant-head'], names: ['ライノ', 'エレファント', 'ベヒーモス'] },
+  { id: 'pegasus', el: 'light',   r: 5, forms: ['horse-head', 'unicorn', 'pegasus'], names: ['ホワイトホース', 'ユニコーン', 'セイント・ペガサス'] },
+  { id: 'sol',     el: 'light',   r: 5, forms: ['sun', 'heraldic-sun', 'sun-priest'], names: ['サンライト', 'ソル', 'アポロン'] },
 ];
 const CHAR_BY_ID = Object.fromEntries(CHARACTERS.map(c => [c.id, c]));
 // 旧バージョン（絵文字キャラ）の保存データを引き継ぐための対応表
@@ -58,7 +111,6 @@ const OLD_CHAR_IDS = {
 };
 const STARTERS = ['flare', 'vine', 'fin'];
 const EVOLVE_LV = [10, 25];   // Lv10で第2形態、Lv25で第3形態
-const CHAR_MAX_LV = 40;
 
 // ===== 世界一周の冒険 =====
 // 地域ごとに6つの街を回る（6教科を1回ずつ）。最後の街はボス。
@@ -66,16 +118,17 @@ const CHAR_MAX_LV = 40;
 // subject: その街で弱点になる教科 / why: その理由 / e: 守護モンスターのアイコン
 // lab: 地図上の街名ラベルの位置 [dx, dy, text-anchor]
 // short: 地域タブに出す短い名前
+// last: 大陸の最後の地域（ボスを倒すとS選択契約書）
 const REGIONS = [
   { id: 'usa_pac', name: 'アメリカ太平洋岸', short: '太平洋岸', flag: '🇺🇸', bg: ['#1c3a6e', '#0a1430'] },
   { id: 'usa_mtn', name: 'アメリカ山岳部',   short: '山岳部',   flag: '🇺🇸', bg: ['#5a3a1c', '#1a0e06'] },
   { id: 'usa_mw',  name: 'アメリカ中西部',   short: '中西部',   flag: '🇺🇸', bg: ['#3a5a1c', '#0e1a06'] },
   { id: 'usa_s',   name: 'アメリカ南部',     short: '南部',     flag: '🇺🇸', bg: ['#6a3a1a', '#1e0e06'] },
   { id: 'usa_se',  name: 'アメリカ南東部',   short: '南東部',   flag: '🇺🇸', bg: ['#1a5a5a', '#061a1a'] },
-  { id: 'usa_ne',  name: 'アメリカ北東部',   short: '北東部',   flag: '🇺🇸', bg: ['#2a2f6a', '#0a0c26'] },
-  { id: 'europe', name: 'ヨーロッパ', flag: '🇪🇺', bg: ['#2a2f6a', '#0e1030'], bbox: [-11, 35, 30, 58], main: [] },
-  { id: 'mideast', name: '中東',      flag: '🕌', bg: ['#6a4a1a', '#1e1206'], bbox: [24, 20, 60, 47], main: [] },
-  { id: 'asia',   name: 'アジア',     flag: '🌏', bg: ['#6a1a2a', '#1a0610'], bbox: [68, -2, 145, 47], main: [392] },
+  { id: 'usa_ne',  name: 'アメリカ北東部',   short: '北東部',   flag: '🇺🇸', bg: ['#2a2f6a', '#0a0c26'], last: true },
+  { id: 'europe', name: 'ヨーロッパ', flag: '🇪🇺', bg: ['#2a2f6a', '#0e1030'], bbox: [-11, 35, 30, 58], main: [], last: true },
+  { id: 'mideast', name: '中東',      flag: '🕌', bg: ['#6a4a1a', '#1e1206'], bbox: [24, 20, 60, 47], main: [], last: true },
+  { id: 'asia',   name: 'アジア',     flag: '🌏', bg: ['#6a1a2a', '#1a0610'], bbox: [68, -2, 145, 47], main: [392], last: true },
 ];
 const REGION_BY_ID = Object.fromEntries(REGIONS.map(r => [r.id, r]));
 
@@ -323,7 +376,7 @@ const MISSIONS = [
   { id: 'm10',  label: '今日10分勉強する', reward: { stars: 10 },  cur: t => t.minutes,  max: 10 },
   { id: 'goal', label: '目標時間を達成する', reward: { stars: 10 },  cur: t => t.goals,    max: 1 },
   { id: 'two',  label: '2教科を勉強する', reward: { stars: 15 },  cur: t => t.subjects, max: 2 },
-  { id: 'm30',  label: '今日30分勉強する', reward: { tickets: 1 }, cur: t => t.minutes,  max: 30 },
+  { id: 'm30',  label: '今日30分勉強する', reward: { stars: 15 },  cur: t => t.minutes,  max: 30 },
 ];
 const ALL_MISSION_BONUS = { stars: 20 };
 
@@ -335,7 +388,16 @@ const CHEERS = [
 
 const GOAL_OPTIONS = [5, 10, 15, 20, 30, 45, 60];
 const MAX_SESSION_MIN = 120;
-const GACHA = { cost1: 30, cost10: 270, pityMax: 30, rates: { 3: 7, 2: 28, 1: 65 } };
+// rates：ランクごとの確率（%）。10連の最後の1回は tenMin ランク以上が確定。pityMax 回引くまでに必ずSが出る
+const GACHA = { cost1: 100, cost10: 1000, pityMax: 50, tenMin: 4, rates: { 5: 3, 4: 10, 3: 22, 2: 30, 1: 35 } };
+// 契約書：ランク契約書はそのランクの中からランダム、選択契約書は好きな1体を選べる
+const CONTRACTS = {
+  a:    { name: 'A契約書',     r: 4, pick: false, desc: 'Aランクの仲間がランダムで1体' },
+  s:    { name: 'S契約書',     r: 5, pick: false, desc: 'Sランクの仲間がランダムで1体' },
+  ssel: { name: 'S選択契約書', r: 5, pick: true,  desc: 'Sランクの仲間から好きな1体を選べる' },
+};
+const CONTRACT_ORDER = ['ssel', 's', 'a'];
+const STREAK_CONTRACTS = { 30: 's', 100: 'ssel' };   // 連続日数のごほうび
 
 // 保護者ページの設定
 const PRIORITY_STAR_RATE = 1.5;          // 優先教科を勉強すると⭐が1.5倍

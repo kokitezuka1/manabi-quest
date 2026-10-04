@@ -49,9 +49,10 @@ const Sound = (() => {
     chime() { arp([880, 1109, 1319, 1760], 0.12, { type: 'sine', vol: 0.15, dur: 0.5 }); },
     evolve() { for (let i = 0; i < 12; i++) tone(300 + i * 80, 0.1, { type: 'triangle', vol: 0.07, delay: i * 0.08 }); arp([1047, 1319, 1568, 2093], 0.1, { type: 'triangle', vol: 0.12, delay: 1.0, dur: 0.4 }); },
     drum() { for (let i = 0; i < 14; i++) noise(0.05, { vol: 0.06 + i * 0.008, delay: i * (0.11 - i * 0.004) }); },
-    reveal(r) {
-      if (r === 3) { arp([523, 659, 784, 1047, 1319, 1568, 2093], 0.07, { type: 'triangle', vol: 0.13, dur: 0.35 }); noise(0.4, { vol: 0.1 }); }
-      else if (r === 2) arp([659, 880, 1175], 0.08, { type: 'triangle', vol: 0.12, dur: 0.3 });
+    reveal(r) {   // r: ランク（1=D 〜 5=S）
+      if (r >= 5) { arp([523, 659, 784, 1047, 1319, 1568, 2093], 0.07, { type: 'triangle', vol: 0.13, dur: 0.35 }); noise(0.4, { vol: 0.1 }); }
+      else if (r === 4) { arp([587, 740, 880, 1175, 1480], 0.08, { type: 'triangle', vol: 0.13, dur: 0.32 }); noise(0.25, { vol: 0.06 }); }
+      else if (r === 3) arp([659, 880, 1175], 0.08, { type: 'triangle', vol: 0.12, dur: 0.3 });
       else arp([784, 988], 0.08, { type: 'triangle', vol: 0.1, dur: 0.25 });
     },
   };
