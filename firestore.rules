@@ -5,30 +5,40 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function famPath(pid) { return /databases/$(database)/documents/families/$(pid); }
-    function isChildOf(pid) { return exists(famPath(pid)) && get(famPath(pid)).data.childUid == request.auth.uid; }
+    // 子どもの端末の一覧（古い版の childUid にも対応）
+    function kids(d) { return d.get('childUids', []); }
+    function isKid(d) { return kids(d).hasAny([request.auth.uid]) || d.get('childUid', '') == request.auth.uid; }
+    function isChildOf(pid) { return exists(famPath(pid)) && isKid(get(famPath(pid)).data); }
     function validCode(code, pid) {
       let p = /databases/$(database)/documents/pairCodes/$(code);
       return code is string && exists(p) && get(p).data.parentUid == pid && get(p).data.expiresAt > request.time;
     }
 
-    // 家族（保護者1人と子ども1人）
+    // 家族（保護者1人と、子どもの端末いくつか）
     match /families/{pid} {
-      allow get: if signedIn() && (request.auth.uid == pid || resource.data.childUid == request.auth.uid);
+      allow get: if signedIn() && (request.auth.uid == pid || isKid(resource.data));
       allow create: if signedIn() && request.auth.uid == pid && request.resource.data.parentUid == pid;
       allow update: if signedIn() && (
         // 保護者：自分の家族の設定を変える
         (request.auth.uid == pid && request.resource.data.parentUid == pid)
-        // 子ども：有効な連携コードを持っていれば、自分を子どもとして登録できる
-        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['childUid', 'pairCode', 'linkedAt'])
-            && request.resource.data.childUid == request.auth.uid
+        // 子ども：有効な連携コードを持っていれば、自分の端末を追加できる（最大10台）
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['childUids', 'pairCode', 'linkedAt'])
+            && request.resource.data.childUids.hasAll(kids(resource.data))
+            && request.resource.data.childUids.hasAny([request.auth.uid])
+            && request.resource.data.childUids.size() <= kids(resource.data).size() + 1
+            && request.resource.data.childUids.size() <= 10
             && validCode(request.resource.data.pairCode, pid))
+        // 子ども：自分の端末の連携を外す
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['childUids'])
+            && request.resource.data.childUids == kids(resource.data).removeAll([request.auth.uid]))
       );
 
-      // 子どものゲームの保存データ（子どもだけが書き、保護者は読むだけ）
+      // 子どものゲームの保存データ（子どもの端末だけが書き、保護者は読むだけ）
       match /state/{docId} {
         allow get: if signedIn() && (request.auth.uid == pid || isChildOf(pid));
         allow write: if signedIn() && isChildOf(pid)
-          && request.resource.data.save is string && request.resource.data.save.size() < 900000;
+          && request.resource.data.save is string && request.resource.data.save.size() < 900000
+          && request.resource.data.rev is int;
       }
     }
 

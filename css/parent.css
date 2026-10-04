@@ -135,5 +135,6 @@ select, input { font: inherit; color: var(--ink); background: var(--card); borde
 .code-box { display: grid; justify-items: center; gap: 2px; background: var(--accent-soft); border-radius: 12px; padding: 14px; margin-top: 6px; }
 .code-box b { font-size: 40px; letter-spacing: .15em; font-variant-numeric: tabular-nums; }
 .code-box small { color: var(--sub); }
-.relink { margin-top: 10px; font-size: 14px; }
-.relink summary { cursor: pointer; color: var(--accent); }
+.relink, .relink2 { margin-top: 10px; font-size: 14px; }
+.relink summary, .relink2 summary { cursor: pointer; color: var(--accent); }
+.relink2 .btn { margin-top: 8px; }

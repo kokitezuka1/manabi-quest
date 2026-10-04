@@ -71,8 +71,23 @@ function migrate(st) {
   return st;
 }
 function save() {
+  S.savedAt = Date.now();
+  saveQuiet();
+  if (S.cloud && typeof onCloudSave === 'function') onCloudSave();   // 保護者と連携中ならクラウドにも送る（app.js）
+}
+// 端末に書くだけ（クラウドから受け取った記録を保存するときなど）
+function saveQuiet() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 容量オーバーなど */ }
-  if (S.cloud && window.Cloud) window.Cloud.pushSave(S);   // 保護者と連携中ならクラウドにも送る
+}
+
+// 2つの端末の記録を合わせる。勉強の記録は両方残し、それ以外（⭐・冒険・仲間など）は新しく保存された方に合わせる
+function mergeSaves(a, b) {
+  const [newer, older] = (b.savedAt || 0) >= (a.savedAt || 0) ? [b, a] : [a, b];
+  const key = x => x.at + '|' + x.subject + '|' + x.minutes;
+  const seen = new Set(newer.sessions.map(key));
+  const extra = older.sessions.filter(x => !seen.has(key(x)));
+  if (!extra.length) return { ...newer };
+  return { ...newer, sessions: [...newer.sessions, ...extra].sort((x, y) => x.at - y.at) };
 }
 
 // ---------- プレイヤー ----------
@@ -298,7 +313,7 @@ function pullGacha(kind) {
 
 // ---------- ミッション ----------
 function ensureDaily() {
-  if (S.daily.date !== today()) { S.daily = { date: today(), claimed: [] }; save(); }
+  if (S.daily.date !== today()) S.daily = { date: today(), claimed: [] };   // 保存は次の操作のときにまとめて
 }
 function todayStats() {
   const t = today();

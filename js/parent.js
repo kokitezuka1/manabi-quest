@@ -72,7 +72,7 @@ function renderCloud(root) {
   }
   S = cloudState();
   if (!draft) draft = freshDraft();
-  if (!cloud.fam || !cloud.fam.childUid) {
+  if (!kidDevices().length) {
     root.innerHTML = `${headerHtml()}<section class="card pair">
       <h2>お子さまの端末と連携</h2>
       <ol class="steps">
@@ -114,15 +114,27 @@ function codeHtml() {
   return `<button class="btn" id="newcode">${c ? 'コードを出し直す' : '連携コードを出す'}</button>`;
 }
 
+// 連携している子どもの端末（古い版の childUid にも対応）
+function kidDevices(fam = cloud.fam) {
+  if (!fam) return [];
+  const list = [...(fam.childUids || [])];
+  if (fam.childUid && !list.includes(fam.childUid)) list.push(fam.childUid);
+  return list;
+}
+
 function accountHtml(linked) {
   const u = cloud.user;
   return `<section class="card">
     <h2>アカウント</h2>
     <p class="note">ログイン中：${esc(u.email || u.displayName || '')}</p>
-    ${linked ? `<p class="note">お子さまの端末と連携中です。${cloud.state && cloud.state.updatedAt ? `最後に記録が届いた時刻：${fmtStamp(cloud.state.updatedAt)}` : ''}</p>
-      <details class="relink"><summary>端末を買い替えた・連携し直したいとき</summary>
-        <p class="note">新しいコードを出し、新しい端末で入力してください。前の端末の連携は自動で外れ、記録はそのまま引き継げます。</p>
+    ${linked ? `<p class="note">連携中のお子さまの端末：<b>${kidDevices().length}台</b>${cloud.state && cloud.state.updatedAt ? `<br>最後に記録が届いた時刻：${fmtStamp(cloud.state.updatedAt)}` : ''}</p>
+      <details class="relink"><summary>端末を追加する（タブレットとPCなど）</summary>
+        <p class="note">新しいコードを出し、追加したい端末のゲームで入力してください。どの端末でも同じ記録の続きから遊べます。</p>
         ${codeHtml()}
+      </details>
+      <details class="relink2"><summary>すべての端末の連携を解除する</summary>
+        <p class="note">使わなくなった端末があるときなどに。解除したあと、使う端末だけ連携し直してください。記録はクラウドに残ります。</p>
+        <button class="btn ghost" id="unlinkall">すべて解除</button>
       </details>` : ''}
     <div class="save-row"><button class="btn ghost" id="logout">ログアウト</button></div>
   </section>`;
@@ -139,6 +151,10 @@ function bindCloud() {
     catch (err) { toast('コードを出せませんでした'); e.target.disabled = false; }
   };
   if (cloud.code && $('.relink')) $('.relink').open = true;
+  if ($('#unlinkall')) $('#unlinkall').onclick = async () => {
+    if (!confirm('すべての端末の連携を解除しますか？')) return;
+    try { await Cloud.unlinkAll(cloud.user.uid); toast('連携を解除しました'); } catch (e) { toast('解除できませんでした'); }
+  };
   $('#logout').onclick = async () => { if (confirm('ログアウトしますか？')) await Cloud.signOut(); };
 }
 
@@ -153,15 +169,15 @@ function startCloudMode() {
     cloud.user = user;
     if (!user) { render(); return; }
     try { await Cloud.ensureFamily(user.uid); } catch (e) { toast('データを読み込めませんでした'); }
-    let prevChild;   // 最初の読み込みでは通知しない
+    let prevKids;   // 最初の読み込みでは通知しない
     cloud.offs.push(Cloud.watchFamily(user.uid, fam => {
-      const child = (fam && fam.childUid) || '';
-      if (prevChild !== undefined && child && child !== prevChild) {
+      const kids = kidDevices(fam);
+      if (prevKids !== undefined && kids.some(k => !prevKids.includes(k))) {
         if (cloud.code) Cloud.deletePairCode(cloud.code.code);
         cloud.code = null;
         toast('お子さまの端末と連携しました');
       }
-      prevChild = child;
+      prevKids = kids;
       cloud.fam = fam;
       render();
     }));

@@ -849,7 +849,7 @@ function openSettings() {
       <h3>保護者の方へ</h3>
       <p class="small">${S.cloud ? 'データはこのブラウザと、保護者のアカウントに保存されます。' : 'データはこのブラウザ内にのみ保存されます。'}料金は一切かかりません。ガチャは勉強時間でためた⭐と🎫だけで引けます。1回の記録は最大${MAX_SESSION_MIN}分です。</p>
       ${cloudOn() ? (S.cloud
-        ? `<p class="cloud-state ${S.cloud.lost ? 'lost' : ''}">${S.cloud.lost ? '⚠️ 連携が切れています。保護者ページで新しいコードを出して、連携し直してください。' : '✅ 保護者と連携中（記録は自動で保護者に届きます）'}</p>
+        ? `<p class="cloud-state ${S.cloud.lost ? 'lost' : ''}">${S.cloud.lost ? '⚠️ 連携が切れています。保護者ページで新しいコードを出して、連携し直してください。' : '✅ 保護者と連携中（記録は自動で保護者に届きます。ほかの端末でも続きから遊べます）'}</p>
            <div class="m-btns">${S.cloud.lost ? '<button class="btn mini" id="link">連携し直す</button>' : ''}<button class="btn ghost mini" id="unlink">連携を解除</button></div>`
         : `<button class="btn mini wide parent-link" id="link">🔗 保護者と連携する</button>
            <p class="small">保護者ページ（${location.host}${location.pathname.replace(/[^/]*$/, '')}parent.html）で Google アカウントにログインし、表示された6桁のコードを入力します。</p>`)
@@ -865,7 +865,7 @@ function openSettings() {
   if ($('#link', el)) $('#link', el).onclick = () => { m.close(); openLinkModal(); };
   if ($('#unlink', el)) $('#unlink', el).onclick = () => {
     if (!confirm('保護者との連携を解除しますか？（この端末の記録は残ります）')) return;
-    Cloud.stopChild(); S.cloud = null; save(); m.close(); render();
+    Cloud.leave(S.cloud.pid); Cloud.stopChild(); cloudStarted = false; S.cloud = null; saveQuiet(); m.close(); render();
   };
   $('#setclose', el).onclick = () => {
     const name = $('#setname', el).value.trim();
@@ -922,9 +922,9 @@ async function openLinkModal() {
     if (!/^\d{6}$/.test(code)) { $('#lerr', m.el).textContent = '6桁の数字を入力してください'; return; }
     btn.disabled = true; btn.textContent = '連携中…';
     try {
-      const { pid, cloudSave } = await Cloud.linkChild(code);
+      const { pid, cloudSave, cloudRev } = await Cloud.linkChild(code);
       m.close();
-      await finishLink(pid, cloudSave);
+      await finishLink(pid, cloudSave, cloudRev);
     } catch (e) {
       $('#lerr', m.el).textContent = e.message && /[ぁ-ん]/.test(e.message) ? e.message : '連携できませんでした。コードを確かめてください';
       btn.disabled = false; btn.textContent = '連携する';
@@ -933,10 +933,10 @@ async function openLinkModal() {
   inp.onkeydown = e => { if (e.key === 'Enter') btn.click(); };
 }
 
-async function finishLink(pid, cloudSave) {
-  let useCloud = false;
+async function finishLink(pid, cloudSave, cloudRev) {
+  let useCloud = false, c = null;
   if (cloudSave) {
-    const c = normalize(JSON.parse(cloudSave));
+    c = normalize(JSON.parse(cloudSave));
     if (c.player && !S.player) useCloud = true;
     else if (c.player && S.player) {
       const v = await modal(`<h2>記録が2つあります</h2>
@@ -945,38 +945,115 @@ async function finishLink(pid, cloudSave) {
         <button class="btn gold" data-v="cloud">保護者に届いている記録<br><small>${esc(c.player.name)} Lv.${c.player.level}</small></button></div>`);
       useCloud = v === 'cloud';
     }
-    if (useCloud) S = c;
   }
-  S.cloud = { pid };
-  save();
-  Cloud.flush();
-  startCloud();
+  if (useCloud) S = fromCloud(c);
+  // この端末の記録を使うときは、クラウドの記録を上書きする（cloudRev を基準にするので合わせない）
+  S.cloud = { pid, rev: cloudRev, dirty: !useCloud && !!S.player };
+  saveQuiet();
+  await startCloud();
   Sound.levelup(); FX.confetti(80);
   await modal(`<div class="m-emo gold">${icon('linked-rings')}</div><h2>連携できた！</h2>
     <p>勉強の記録がおうちの人に届くようになったよ</p><button class="btn gold wide" data-v="ok">OK</button>`);
   go(!S.player ? 'onboard' : S.active ? 'timer' : 'home');
 }
 
-// 連携中なら、保護者の設定を受け取り、記録を送る
+// ---- 同期 ----
+// 端末ごとの記録はクラウドの「更新番号（rev）」で管理する。
+//   この端末に変更がない → クラウドの新しい記録をそのまま使う
+//   この端末にも変更がある → 2つを合わせてクラウドに書く（mergeSaves）
+let cloudStarted = false, syncing = false, syncTimer = null, changeSeq = 0, queuedRemote = null;
+
+// クラウドの記録を使うとき、この端末だけのもの（タイマー・効果音の設定・保護者の設定・連携情報）は残す
+function fromCloud(remote) {
+  const st = normalize(remote);
+  st.active = S.active; st.settings = S.settings; st.parent = S.parent; st.cloud = S.cloud;
+  return st;
+}
+function cloudPayload(st) { const { cloud, ...rest } = st; return rest; }
+
+// store.js の save() から呼ばれる
+function onCloudSave() {
+  if (!S.cloud || S.cloud.lost) return;
+  S.cloud.dirty = true;
+  changeSeq++;
+  saveQuiet();
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+
+async function syncNow() {
+  clearTimeout(syncTimer);
+  if (!cloudStarted || !S.cloud || S.cloud.lost || !S.cloud.dirty || syncing) return;
+  syncing = true;
+  const seq = changeSeq;
+  let ok = false;
+  try {
+    const res = await Cloud.commit(S.cloud.pid, S.cloud.rev || 0,
+      newer => cloudPayload(newer ? mergeSaves(normalize(JSON.parse(newer)), S) : S));
+    if (res.merged) S = fromCloud(mergeSaves(normalize(res.save), S));
+    S.cloud.rev = res.rev;
+    if (changeSeq === seq) S.cloud.dirty = false;
+    saveQuiet();
+    if (res.merged) refreshAfterSync();
+    ok = true;
+  } catch (e) { console.warn('クラウド保存に失敗', e); }
+  syncing = false;
+  if (S.cloud && S.cloud.dirty) syncTimer = setTimeout(syncNow, ok ? 1500 : 15000);
+  if (queuedRemote) { const r = queuedRemote; queuedRemote = null; onRemote(r); }
+}
+
+// ほかの端末がクラウドに書いた記録を受け取る
+function onRemote(r) {
+  if (!S.cloud || r.rev <= (S.cloud.rev || 0)) return;
+  if (syncing) { queuedRemote = r; return; }
+  if (S.cloud.dirty) { syncNow(); return; }   // 書くときに合わせる
+  let remote;
+  try { remote = JSON.parse(r.save); } catch (e) { return; }
+  S = fromCloud(remote);
+  S.cloud.rev = r.rev;
+  saveQuiet();
+  refreshAfterSync();
+}
+function refreshAfterSync() {
+  if (!S.player) return;
+  if ($('.modal-back') || $('.g-overlay')) { renderTopbar(); renderNav(); return; }
+  if (['home', 'adventure', 'zukan', 'records', 'gacha'].includes(current.name)) render();
+  else { renderTopbar(); renderNav(); }
+}
+
+// 連携中なら、保護者の設定とほかの端末の記録を受け取り、この端末の記録を送る
 async function startCloud() {
   if (!cloudOn() || !S.cloud) return;
-  const ok = await Cloud.startChild(S.cloud.pid, (parent, status) => {
-    if (status === 'unlinked') { S.cloud = { ...S.cloud, lost: true }; Cloud.stopChild(); save(); return; }
-    if (!parent) return;
-    const next = { ...S.parent, target: { ...S.parent.target, ...(parent.target || {}) }, priority: parent.priority || [] };
-    if (JSON.stringify(next) === JSON.stringify(S.parent)) return;
-    S.parent = next;
-    save();
-    if (['home', 'setup'].includes(current.name)) render();
+  cloudStarted = false;
+  const ok = await Cloud.startChild(S.cloud.pid, {
+    onParent: parent => {
+      if (!parent || !S.cloud) return;
+      const next = { ...S.parent, target: { ...S.parent.target, ...(parent.target || {}) }, priority: parent.priority || [] };
+      if (JSON.stringify(next) === JSON.stringify(S.parent)) return;
+      S.parent = next;
+      saveQuiet();
+      if (['home', 'setup'].includes(current.name)) render();
+    },
+    onRemote,
+    onUnlinked: () => {
+      if (!S.cloud) return;
+      Cloud.stopChild(); cloudStarted = false;
+      S.cloud = { ...S.cloud, lost: true };
+      saveQuiet();
+    },
   });
-  if (!ok) { S.cloud = { ...S.cloud, lost: true }; save(); return; }
-  if (S.cloud.lost) { delete S.cloud.lost; }
-  save();   // 起動時の状態を送る
+  if (!S.cloud) return;
+  if (!ok) { S.cloud = { ...S.cloud, lost: true }; saveQuiet(); return; }
+  delete S.cloud.lost;
+  cloudStarted = true;
+  saveQuiet();
+  if (S.cloud.dirty) syncNow();
 }
 window.addEventListener('cloud-ready', () => {
   if (current.name === 'onboard' && !current.params.step && cloudOn() && !$('#name').value) render();   // 「前の記録を引き継ぐ」を出す
   startCloud();
 });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') syncNow(); });
 
 // ---------- 起動 ----------
 document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });
