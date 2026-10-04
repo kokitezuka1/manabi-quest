@@ -172,3 +172,14 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0 4px; }
 .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; cursor: pointer; }
 .check input { width: 20px; height: 20px; padding: 0; flex: none; accent-color: #c62f3f; }
 .btn.danger { background: #c62f3f; color: #fff; }
+
+/* ---- ⭐のプレゼント ---- */
+.gift-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.gift-presets .btn { padding: 8px 4px; }
+.gift-presets .btn.on { background: var(--accent-soft); border-color: var(--accent); }
+.gift-row { display: grid; gap: 4px; font-size: 13px; color: var(--sub); margin: 8px 0; }
+.gift-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.gift-list li { display: grid; grid-template-columns: auto auto 1fr; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.gift-list li span:first-child { color: var(--sub); font-size: 13px; }
+.gift-list b { color: var(--warn); }
+.gmsg { color: var(--sub); overflow-wrap: anywhere; }

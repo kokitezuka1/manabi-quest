@@ -547,3 +547,4 @@ b { font-weight: 800; }
 .rv.ok { color: var(--gold1); }
 .rv.ng { color: var(--sub); }
 .recent b.ng { text-decoration: line-through; opacity: .5; }
+.gift-msg { font-size: 16px; margin: 6px 0; color: var(--ink); }

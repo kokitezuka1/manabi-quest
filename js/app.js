@@ -219,6 +219,25 @@ async function showResetNews() {
   showingNews = false;
   render();
 }
+// ---------- ⭐のプレゼント ----------
+async function showGiftNews() {
+  if (showingNews || !S.giftNews || !S.giftNews.length || $('.modal-back') || $('.g-overlay') || current.name !== 'home') return;
+  showingNews = true;
+  const news = S.giftNews;
+  S.giftNews = [];
+  save();
+  const total = news.reduce((a, g) => a + g.stars, 0);
+  Sound.levelup(); FX.confetti(140);
+  await modal(`<div class="m-emo gold">🎁</div>
+    <h2>おうちの人から⭐のプレゼント！</h2>
+    ${news.filter(g => g.msg).map(g => `<p class="gift-msg">「${esc(g.msg)}」</p>`).join('')}
+    <div class="rw-big">⭐+${total}</div>
+    <button class="btn gold wide" data-v="ok">ありがとう！</button>`, { cls: 'shine' });
+  showingNews = false;
+  renderTopbar(); renderNav();
+  if (current.name === 'home') render();
+}
+
 // リセットが届いたら、仲間の画面などを開き直す（勉強中・結果の画面はそのまま）
 function afterReset() {
   renderTopbar(); renderNav();
@@ -345,6 +364,7 @@ SCREENS.home = el => {
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
   if (S.resetNews) setTimeout(showResetNews, 300);
+  else if (S.giftNews && S.giftNews.length) setTimeout(showGiftNews, 300);
   else if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
@@ -1055,7 +1075,8 @@ window.addEventListener('storage', e => {
   try { other = normalize(JSON.parse(e.newValue)); } catch (err) { return; }
   S.parent = other.parent;
   if (applyReset(other.lastReset)) { afterReset(); return; }
-  if (applyReviews(decisionsFrom(other.sessions))) { afterReviews(); return; }
+  const gifts = applyGifts(other.gifts);
+  if (applyReviews(decisionsFrom(other.sessions)) || gifts) { afterReviews(); return; }
   if (['home', 'setup'].includes(current.name)) render();
 });
 
@@ -1117,6 +1138,7 @@ async function finishLink(pid, cloudSave, cloudRev) {
 let cloudStarted = false, syncing = false, syncTimer = null, changeSeq = 0, queuedRemote = null;
 let lastReviews = {};   // 保護者の承認（ほかの端末の記録を受け取ったあとにも当てはめ直す）
 let lastReset = null;   // 保護者が押した仲間のリセット（同じ）
+let lastGifts = [];     // 保護者からの⭐のプレゼント（同じ）
 
 // クラウドの記録を使うとき、この端末だけのもの（タイマー・効果音の設定・保護者の設定・連携情報）は残す
 function fromCloud(remote) {
@@ -1149,7 +1171,7 @@ async function syncNow() {
     S.cloud.rev = res.rev;
     if (changeSeq === seq) S.cloud.dirty = false;
     saveQuiet();
-    if (res.merged) { applyReset(lastReset); applyReviews(lastReviews); refreshAfterSync(); }
+    if (res.merged) { applyReset(lastReset); applyGifts(lastGifts); applyReviews(lastReviews); refreshAfterSync(); }
     ok = true;
   } catch (e) { console.warn('クラウド保存に失敗', e); }
   syncing = false;
@@ -1168,6 +1190,7 @@ function onRemote(r) {
   S.cloud.rev = r.rev;
   saveQuiet();
   if (applyReset(lastReset)) { afterReset(); return; }
+  applyGifts(lastGifts);
   applyReviews(lastReviews);
   refreshAfterSync();
 }
@@ -1193,6 +1216,7 @@ async function startCloud() {
     },
     onReviews: reviews => { lastReviews = reviews; if (applyReviews(reviews)) afterReviews(); },
     onReset: cmd => { lastReset = cmd; if (applyReset(cmd)) afterReset(); },
+    onGifts: gifts => { lastGifts = gifts; if (applyGifts(gifts)) afterReviews(); },
     onRemote,
     onUnlinked: () => {
       if (!S.cloud) return;

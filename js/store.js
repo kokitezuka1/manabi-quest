@@ -24,6 +24,8 @@ function defaultState() {
     reviewNews: [],            // おうちの人が承認・却下した結果（まだ子どもに見せていないもの）
     lastReset: null,           // 最後に当てはめた「仲間のリセット」{ id, contracts, stars }
     resetNews: null,           // リセットされたことのお知らせ（まだ子どもに見せていないもの）
+    gifts: [],                 // おうちの人からもらった⭐のプレゼント { id, stars, msg, at }（最近の50件）
+    giftNews: [],              // まだ子どもに見せていないプレゼント
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
@@ -251,6 +253,27 @@ function applyReset(cmd) {
   S.resetNews = plan;
   save();
   return true;
+}
+
+// ---------- ⭐のプレゼント（保護者ページから） ----------
+const GIFT_MAX = 1000;
+// list: [{ id, stars, msg, at }]。まだ受け取っていないものだけ⭐を入れる
+function applyGifts(list) {
+  if (!list || !S.player) return 0;
+  const got = new Set(S.gifts.map(g => g.id));
+  const fresh = list.filter(g => g && g.id && !got.has(g.id)).sort((a, b) => a.id - b.id);
+  for (const g of fresh) {
+    const stars = Math.max(1, Math.min(GIFT_MAX, Math.round(+g.stars) || 0));
+    const gift = { id: g.id, stars, msg: String(g.msg || '').slice(0, 40), at: g.at || g.id };
+    S.player.stars += stars;
+    S.gifts.push(gift);
+    S.giftNews.push(gift);
+  }
+  if (!fresh.length) return 0;
+  S.gifts = S.gifts.slice(-50);
+  S.giftNews = S.giftNews.slice(-20);
+  save();
+  return fresh.length;
 }
 
 // ---------- 連続記録 ----------

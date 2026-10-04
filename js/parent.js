@@ -50,9 +50,10 @@ function render() {
       <a class="btn" href="index.html">ゲームを開く</a></section>`;
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + pinHtml() + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + pinHtml() + footHtml();
   bind();
   bindReview();
+  bindGift();
   bindReset();
 }
 
@@ -96,10 +97,11 @@ function renderCloud(root) {
     bindCloud();
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + accountHtml(true) + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + accountHtml(true) + footHtml();
   bind();
   bindCloud();
   bindReview();
+  bindGift();
   bindReset();
 }
 
@@ -187,9 +189,10 @@ function startCloudMode() {
       prevKids = kids;
       cloud.fam = fam;
       pruneReviews();
-      render();
+      pruneGifts();
+      softRender();
     }));
-    cloud.offs.push(Cloud.watchChildState(user.uid, st => { cloud.state = st; pruneReviews(); render(); }));
+    cloud.offs.push(Cloud.watchChildState(user.uid, st => { cloud.state = st; pruneReviews(); pruneGifts(); softRender(); }));
   });
 }
 
@@ -267,6 +270,65 @@ function pruneReviews() {
   const st = cloudState();
   const done = Object.keys(sent).filter(at => { const s = st.sessions.find(x => String(x.at) === at); return !s || s.review !== 'pending'; });
   if (done.length) Cloud.pruneReviews(cloud.user.uid, done).catch(() => {});
+}
+
+// ---------- ⭐のプレゼント ----------
+const GIFT_PRESETS = [10, 30, 50, 100];
+let giftDraft = { stars: 30, msg: '' };   // 入力中の内容（再描画しても消えないように）
+function sentGifts() {
+  const sent = mode === 'cloud' && cloud.fam && cloud.fam.gifts || {};
+  const got = new Set(S.gifts.map(g => g.id));
+  return Object.values(sent).filter(g => !got.has(g.id));   // 送ったけれど、まだお子さまの端末が受け取っていないもの
+}
+function giftHtml() {
+  const waiting = sentGifts();
+  const recent = S.gifts.slice(-5).reverse();
+  const d = new Date();
+  return `<section class="card gift"><h2>⭐をプレゼント</h2>
+    <p class="note">お手伝いをしたときや、よくがんばった日などに、⭐を贈れます（1回 ${GIFT_MAX}個まで）。</p>
+    ${mode === 'local' && !S.parent.pin ? '<p class="alert">⚠️ 暗証番号が未設定のため、お子さまが自分で⭐を贈れてしまいます。下の「暗証番号（PIN）」で設定してください。</p>' : ''}
+    <div class="gift-presets">${GIFT_PRESETS.map(n => `<button class="btn ghost ${giftDraft.stars === n ? 'on' : ''}" data-g="${n}">⭐${n}</button>`).join('')}</div>
+    <label class="gift-row">個数<input id="g-stars" type="number" inputmode="numeric" min="1" max="${GIFT_MAX}" value="${giftDraft.stars}"></label>
+    <label class="gift-row">ひとこと（なくてもOK）<input id="g-msg" maxlength="40" placeholder="例：お手伝いありがとう！" value="${esc(giftDraft.msg)}"></label>
+    <div class="save-row"><button class="btn" id="g-send">⭐${giftDraft.stars}を贈る</button></div>
+    ${waiting.length ? `<p class="note">🎁 お子さまの端末に届くのを待っています：⭐${waiting.reduce((a, g) => a + g.stars, 0)}（${waiting.length}件）。お子さまがゲームを開くと届きます。</p>` : ''}
+    ${recent.length ? `<h3>最近のプレゼント</h3><ul class="gift-list">${recent.map(g => {
+      const t = new Date(g.at);
+      return `<li><span>${t.getMonth() + 1}/${t.getDate()} ${hhmm(t)}</span><b>⭐${g.stars}</b><span class="gmsg">${esc(g.msg || '')}</span></li>`;
+    }).join('')}</ul>` : ''}
+  </section>`;
+}
+function bindGift() {
+  const inp = $('#g-stars'), msg = $('#g-msg'), btn = $('#g-send');
+  if (!inp) return;
+  const sync = () => { const v = Math.round(+inp.value); giftDraft.stars = v; btn.textContent = v >= 1 && v <= GIFT_MAX ? `⭐${v}を贈る` : '贈る'; $$('[data-g]').forEach(b => b.classList.toggle('on', +b.dataset.g === v)); };
+  inp.oninput = sync;
+  msg.oninput = () => { giftDraft.msg = msg.value; };
+  $$('[data-g]').forEach(b => b.onclick = () => { inp.value = b.dataset.g; sync(); });
+  btn.onclick = async () => {
+    const stars = Math.round(+inp.value);
+    if (!(stars >= 1 && stars <= GIFT_MAX)) { toast(`1〜${GIFT_MAX}個で入力してください`); inp.focus(); return; }
+    if (!confirm(`${S.player.name}さんに ⭐${stars} を贈りますか？`)) return;
+    const id = Date.now();
+    const gift = { id, stars, msg: msg.value.trim().slice(0, 40), at: id };
+    if (mode === 'cloud') {
+      try { await Cloud.sendGift(cloud.user.uid, gift); } catch (e) { toast('送れませんでした'); return; }
+    } else {
+      S = load();
+      applyGifts([gift]);
+    }
+    giftDraft = { stars: 30, msg: '' };
+    toast(`⭐${stars}を贈りました`);
+    render();
+  };
+}
+// お子さまの端末が受け取ったプレゼントを、クラウドから消す
+function pruneGifts() {
+  const sent = cloud.fam && cloud.fam.gifts;
+  if (!cloud.state || !sent || !Object.keys(sent).length) return;
+  const got = new Set(cloudState().gifts.map(g => String(g.id)));
+  const done = Object.keys(sent).filter(id => got.has(id));
+  if (done.length) Cloud.pruneGifts(cloud.user.uid, done).catch(() => {});
 }
 
 // ---------- 仲間のリセット ----------
@@ -536,16 +598,16 @@ function renderLock(root) {
 
 // ゲーム（別のタブ）で記録が増えたら表示を更新する。編集中の設定はそのまま残す
 // 承認の時間を入力している途中なら、書き換えないで入力が終わってから更新する
-function editing() { return !!document.activeElement?.closest('.rv-list'); }
-window.addEventListener('storage', e => {
-  if (e.key !== SAVE_KEY || mode !== 'local') return;
+function editing() { return !!document.activeElement?.closest('.rv-list, .gift'); }
+// 入力が終わったら更新する（ボタンを押すまで待てるよう、少し遅らせる）
+function softRender() {
   if (!editing()) { render(); return; }
-  // 入力が終わったら更新する（承認ボタンを押すまで待てるよう、少し遅らせる）
   document.activeElement.addEventListener('blur', () => setTimeout(() => { if (!editing()) render(); }, 600), { once: true });
-});
+}
+window.addEventListener('storage', e => { if (e.key === SAVE_KEY && mode === 'local') softRender(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode === 'local') render(); });
 setInterval(() => {
-  if (document.activeElement?.tagName === 'SELECT') return;
+  if (document.activeElement?.tagName === 'SELECT' || editing()) return;
   if (mode === 'cloud' && cloud.code) render();   // コードの残り時間
   else if (S.active && day === today() && (mode === 'cloud' || isUnlocked())) render();
 }, 30000);
