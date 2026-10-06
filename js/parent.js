@@ -50,8 +50,9 @@ function render() {
       <a class="btn" href="index.html">ゲームを開く</a></section>`;
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + pinHtml() + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + pinHtml() + footHtml();
   bind();
+  bindCourse();
   bindReview();
   bindGift();
   bindReset();
@@ -97,8 +98,9 @@ function renderCloud(root) {
     bindCloud();
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + resetHtml() + accountHtml(true) + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + accountHtml(true) + footHtml();
   bind();
+  bindCourse();
   bindCloud();
   bindReview();
   bindGift();
@@ -110,7 +112,8 @@ function cloudState() {
   let st = defaultState();
   try { if (cloud.state && cloud.state.save) st = normalize(JSON.parse(cloud.state.save)); } catch (e) { /* 壊れたデータは無視 */ }
   const p = (cloud.fam && cloud.fam.parent) || {};
-  st.parent = { ...defaultParent(), target: { ...defaultParent().target, ...(p.target || {}) }, priority: p.priority || [] };
+  st.parent = { ...defaultParent(), target: { ...defaultParent().target, ...(p.target || {}) }, priority: p.priority || [],
+    courseDefault: p.courseDefault ?? COURSE_STARS, courseStars: p.courseStars || {} };
   return st;
 }
 
@@ -221,8 +224,8 @@ function reviewHtml() {
       const sub = SUBJECT_BY_ID[s.subject];
       return `<li data-at="${s.at}">
         <div class="rv-head"><span class="rv-when">${dayLabel(s.date)} ${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
-          <span class="rv-sub">${sub.icon} ${sub.name}${s.prio ? '<em class="prio">優先</em>' : ''}</span></div>
-        <div class="rv-body"><label class="rv-min"><input type="number" inputmode="numeric" min="1" max="${s.minutes}" value="${s.minutes}"> 分<small>申請 ${fmtMin(s.minutes)}${s.goalMet ? `・目標${s.goal}分達成` : ''}</small></label>
+          <span class="rv-sub">${s.course ? `📚 ${esc(courseName(s.course))}` : `${sub.icon} ${sub.name}`}${s.prio ? '<em class="prio">優先</em>' : ''}</span></div>
+        <div class="rv-body"><label class="rv-min"><input type="number" inputmode="numeric" min="1" max="${s.minutes}" value="${s.minutes}"> 分<small>申請 ${fmtMin(s.minutes)}${s.goalMet ? `・目標${s.goal}分達成` : ''}${s.course ? '・講座の⭐は時間によらず一定' : ''}</small></label>
           <span class="rv-star">⭐<b>${s.stars}</b></span></div>
         <div class="rv-btns"><button class="btn ghost rv-ng">却下</button><button class="btn rv-ok">承認</button></div></li>`;
     }).join('')}</ul>
@@ -270,6 +273,55 @@ function pruneReviews() {
   const st = cloudState();
   const done = Object.keys(sent).filter(at => { const s = st.sessions.find(x => String(x.at) === at); return !s || s.review !== 'pending'; });
   if (done.length) Cloud.pruneReviews(cloud.user.uid, done).catch(() => {});
+}
+
+// ---------- 講座 ----------
+function courseName(id) { const c = COURSE_BY_ID[id]; return c ? `${GROUP_BY_ID[c.group].short} ${c.name} ${c.desc}` : '講座'; }
+let courseOpen = {};   // 開いている区分（再描画しても閉じないように）
+function courseHtml() {
+  const d = draft, log = courseLog();
+  const dirty = JSON.stringify(d) !== JSON.stringify(S.parent);
+  const starOf = id => d.courseStars[id] ?? d.courseDefault;
+  return `<section class="card course-set">
+    <h2>講座の⭐</h2>
+    <p class="note">お子さまがゲームで受けた講座にチェックすると、承認の申請が届きます。承認すると、ここで決めた⭐が入ります（時間は勉強時間として記録されます）。</p>
+    <label class="gift-row">1講座の⭐（ふつう）<input id="c-default" type="number" inputmode="numeric" min="0" max="500" value="${d.courseDefault}"></label>
+    <p class="note">講座ごとに変えたいときは、下の一覧で個別に入力してください（空欄にすると「ふつう」の数になります）。</p>
+    ${COURSE_GROUPS.map(g => {
+      const list = COURSES.filter(c => c.group === g.id);
+      const done = list.filter(c => log[c.id] && log[c.id].ok).length;
+      return `<details class="cgroup" data-g="${g.id}" ${courseOpen[g.id] ? 'open' : ''}><summary>${esc(g.name)} <span class="muted">受講 ${done} / ${list.length}</span></summary>
+        <ul class="clist">${list.map(c => {
+          const l = log[c.id];
+          return `<li><span class="cn"><b>${esc(c.name)}</b> ${esc(c.desc)}<small>${c.page ? esc(c.page) + '・' : ''}${c.min ? fmtMin(c.min) : '時間の目安なし'}${l && l.ok ? `・受講${l.ok}回` : ''}${l && l.pending ? '・承認待ち' : ''}</small></span>
+            <label class="cs">⭐<input type="number" inputmode="numeric" min="0" max="500" data-cs="${c.id}" value="${d.courseStars[c.id] ?? ''}" placeholder="${d.courseDefault}"></label></li>`;
+        }).join('')}</ul></details>`;
+    }).join('')}
+    <div class="save-row">
+      ${dirty ? '<button class="btn ghost" id="c-revert">元に戻す</button>' : ''}
+      <button class="btn" id="c-save" ${dirty ? '' : 'disabled'}>${dirty ? '保存する' : '保存済み'}</button>
+    </div>
+  </section>`;
+}
+function bindCourse() {
+  if (!$('#c-default')) return;
+  const refresh = () => {   // 入力は残したまま、保存ボタンだけ切り替える
+    const dirty = JSON.stringify(draft) !== JSON.stringify(S.parent);
+    $('#c-save').disabled = !dirty; $('#c-save').textContent = dirty ? '保存する' : '保存済み';
+  };
+  $('#c-default').oninput = e => {
+    const v = Math.round(+e.target.value);
+    if (e.target.value !== '' && v >= 0 && v <= 500) { draft.courseDefault = v; $$('[data-cs]').forEach(i => { i.placeholder = v; }); refresh(); }
+  };
+  $$('[data-cs]').forEach(inp => inp.oninput = () => {
+    const v = Math.round(+inp.value), id = inp.dataset.cs;
+    if (inp.value === '') delete draft.courseStars[id];
+    else if (v >= 0 && v <= 500) draft.courseStars[id] = v;
+    refresh();
+  });
+  $$('.cgroup').forEach(dt => dt.ontoggle = () => { courseOpen[dt.dataset.g] = dt.open; });
+  if ($('#c-revert')) $('#c-revert').onclick = () => { draft = freshDraft(); render(); };
+  $('#c-save').onclick = saveDraft;
 }
 
 // ---------- ⭐のプレゼント ----------
@@ -422,7 +474,7 @@ function dayHtml() {
       : '<p class="muted">この日の記録はありません。</p>'}
     ${ss.length ? `<h3>記録</h3><ul class="sessions">${ss.slice().reverse().map(s => `<li>
         <span class="time">${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
-        <span>${SUBJECT_BY_ID[s.subject].icon} ${SUBJECT_BY_ID[s.subject].name}</span>
+        <span>${SUBJECT_BY_ID[s.subject].icon} ${SUBJECT_BY_ID[s.subject].name}${s.course ? `<small class="sc">📚 ${esc(courseName(s.course))}</small>` : ''}</span>
         <b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${fmtMin(s.minutes)}</s> ` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '<span class="tag">目標達成</span>' : ''}${reviewTag(s)}</li>`).join('')}</ul>` : ''}
   </section>`;
 }
@@ -528,6 +580,20 @@ function footHtml() {
   </footer>`;
 }
 
+// 学習の設定と講座の⭐を保存する
+async function saveDraft() {
+  const next = { target: { ...draft.target }, priority: [...draft.priority], courseDefault: draft.courseDefault, courseStars: { ...draft.courseStars } };
+  if (mode === 'cloud') {
+    try { await Cloud.saveParentSettings(cloud.user.uid, next); } catch (e) { toast('保存できませんでした'); return; }
+    draft = null;
+  } else {
+    saveParent({ ...S.parent, ...next });
+    draft = freshDraft();
+  }
+  render();
+  toast('保存しました。お子さまの画面に反映されます');
+}
+
 function bind() {
   const go = k => { day = k; render(); };
   $('#prev').onclick = () => go(dayOffset(day, -1));
@@ -544,18 +610,7 @@ function bind() {
     render();
   });
   if ($('#revert')) $('#revert').onclick = () => { draft = freshDraft(); render(); };
-  $('#save').onclick = async () => {
-    const next = { target: { ...draft.target }, priority: [...draft.priority] };
-    if (mode === 'cloud') {
-      try { await Cloud.saveParentSettings(cloud.user.uid, next); } catch (e) { toast('保存できませんでした'); return; }
-      draft = null;
-    } else {
-      saveParent({ ...S.parent, ...next });
-      draft = freshDraft();
-    }
-    render();
-    toast('保存しました。お子さまの画面に反映されます');
-  };
+  $('#save').onclick = saveDraft;
 
   if (!$('#setpin')) return;
   $('#setpin').onclick = () => {
@@ -598,7 +653,7 @@ function renderLock(root) {
 
 // ゲーム（別のタブ）で記録が増えたら表示を更新する。編集中の設定はそのまま残す
 // 承認の時間を入力している途中なら、書き換えないで入力が終わってから更新する
-function editing() { return !!document.activeElement?.closest('.rv-list, .gift'); }
+function editing() { return !!document.activeElement?.closest('.rv-list, .gift, .course-set'); }
 // 入力が終わったら更新する（ボタンを押すまで待てるよう、少し遅らせる）
 function softRender() {
   if (!editing()) { render(); return; }

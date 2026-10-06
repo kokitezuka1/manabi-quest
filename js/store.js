@@ -38,7 +38,8 @@ function defaultState() {
   };
 }
 function defaultParent() {
-  return { target: { weekday: 0, weekend: 0 }, priority: [], pin: '' };   // target: 1日の目標（分）、0は未設定
+  // target: 1日の目標（分）、0は未設定。courseDefault: 1講座の⭐、courseStars: 講座ごとに変えた⭐ { [講座id]: ⭐ }
+  return { target: { weekday: 0, weekend: 0 }, priority: [], pin: '', courseDefault: COURSE_STARS, courseStars: {} };
 }
 
 let S = load();
@@ -297,7 +298,8 @@ function touchStreak(events) {
 }
 
 // ---------- 勉強終了 ----------
-function finishSession(subject, minutes, goal, goalMet) {
+// course: 講座をチェックしたときは講座の id（⭐は講座の⭐、時間は勉強時間として数える）
+function finishSession(subject, minutes, goal, goalMet, course = null) {
   const events = [];
   const p = S.player;
   const xpBefore = { level: p.level, xp: p.xp };
@@ -308,13 +310,13 @@ function finishSession(subject, minutes, goal, goalMet) {
 
   const xp = Math.round(minutes * 10 * (goalMet ? 1.2 : 1));
   // 勉強の⭐はすぐには入らない。おうちの人が承認したら入る（applyReviews）
-  const stars = starsFor(minutes, goalMet, subject);
-  const prio = isPriority(subject);
+  const stars = course ? courseStarsFor(course) : starsFor(minutes, goalMet, subject);
+  const prio = !course && isPriority(subject);
   ensureDaily();
   const before = todayStats().minutes;
   // at は承認のときの目印にもなるので、ほかの記録と重ならないようにする
   const at = Math.max(Date.now(), ...S.sessions.slice(-5).map(s => s.at + 1));
-  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at, stars, prio, review: 'pending' });
+  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at, stars, prio, review: 'pending', ...(course ? { course } : {}) });
   const target = targetFor(today());
   if (target && !S.daily.targetPaid && before < target && before + minutes >= target) {
     S.daily.targetPaid = true;   // 却下で時間が減ったあとに、もう一度もらえないように
@@ -330,7 +332,7 @@ function finishSession(subject, minutes, goal, goalMet) {
 
   S.active = null;
   save();
-  return { subject, minutes, goal, goalMet, xp, stars, prio, cexp, match, partner, xpBefore, charBefore, battle, events };
+  return { subject, minutes, goal, goalMet, course, xp, stars, prio, cexp, match, partner, xpBefore, charBefore, battle, events };
 }
 function starsFor(minutes, goalMet, subject) {
   const base = minutes + (goalMet ? 5 : 0);
@@ -343,6 +345,7 @@ function sessionMin(s) { return s.review === 'ng' ? 0 : s.okMin ?? s.minutes; }
 function pendingSessions() { return S.sessions.filter(s => s.review === 'pending'); }
 // 承認した時間で⭐を計算する（優先教科かどうかは勉強したときのまま）
 function reviewStars(s, min) {
+  if (s.course) return s.stars;   // 講座の⭐は時間によらず決まった数
   const base = min + (s.goalMet && min >= s.goal ? 5 : 0);
   return s.prio ? Math.round(base * PRIORITY_STAR_RATE) : base;
 }
@@ -362,7 +365,7 @@ function applyReviews(decisions) {
     } else if (d.st === 'ng') {
       s.review = 'ng';
     } else continue;
-    news.push({ at: s.at, subject: s.subject, minutes: s.minutes, okMin: s.okMin, review: s.review, stars: s.gotStars || 0 });
+    news.push({ at: s.at, subject: s.subject, minutes: s.minutes, okMin: s.okMin, review: s.review, stars: s.gotStars || 0, course: s.course });
   }
   if (!news.length) return 0;
   S.reviewNews = [...(S.reviewNews || []), ...news].slice(-30);
@@ -384,6 +387,18 @@ function isWeekend(key) {
 }
 function targetFor(key) { return S.parent.target[isWeekend(key) ? 'weekend' : 'weekday'] || 0; }
 function isPriority(subject) { return S.parent.priority.includes(subject); }
+function courseStarsFor(id) { return S.parent.courseStars?.[id] ?? S.parent.courseDefault ?? COURSE_STARS; }
+// 講座ごとの記録（承認済みの回数・承認待ちの回数）
+function courseLog() {
+  const log = {};
+  for (const s of S.sessions) {
+    if (!s.course) continue;
+    const l = log[s.course] || (log[s.course] = { ok: 0, pending: 0, ng: 0, last: 0 });
+    if (s.review === 'pending') l.pending++; else if (s.review === 'ng') l.ng++; else l.ok++;
+    l.last = Math.max(l.last, s.at);
+  }
+  return log;
+}
 // 保護者ページから保存する。別のタブでゲームが開いていても上書きしないよう、最新のデータに parent だけ書き込む
 function saveParent(parent) {
   S = load();

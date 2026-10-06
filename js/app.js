@@ -172,6 +172,62 @@ function contractGotHtml(kinds) {
   return `<div class="contract-got">${kinds.map(k => `<span class="ct ${k}">📜 ${CONTRACTS[k].name}</span>`).join('')}<small>ガチャ画面で使えるよ</small></div>`;
 }
 
+// ---------- 講座チェック ----------
+function courseLabel(id) { const c = COURSE_BY_ID[id]; return c ? `${GROUP_BY_ID[c.group].short} ${c.name} ${c.desc}` : '講座'; }
+// まだ受けていない、いちばん前の講座
+function nextCourse(log = courseLog()) { return COURSES.find(c => !log[c.id] || !(log[c.id].ok + log[c.id].pending)); }
+function courseCardHtml() {
+  const log = courseLog(), nx = nextCourse(log);
+  const done = COURSES.filter(c => log[c.id] && log[c.id].ok).length;
+  return `<button class="card course-card" id="courses"><h3>📚 講座チェック <span class="muted small">${done} / ${COURSES.length}</span></h3>
+    <p class="small">${nx ? `次は <b>${esc(GROUP_BY_ID[nx.group].short)} ${esc(nx.name)}</b> ${esc(nx.desc)}` : 'ぜんぶの講座を受けたよ！すごい！'}</p>
+    <p class="small muted">受けた講座にチェックすると、おうちの人に届いて⭐がもらえるよ ▶</p></button>`;
+}
+SCREENS.courses = (el, params) => {
+  const log = courseLog(), nx = nextCourse(log);
+  const gid = params.g || (nx ? nx.group : COURSE_GROUPS[0].id);
+  const list = COURSES.filter(c => c.group === gid);
+  el.innerHTML = `<h2 class="page-title">講座チェック</h2>
+    <p class="small muted">受けた講座をタップしてチェック → おうちの人が確認したら⭐がもらえるよ。何回でもチェックできる</p>
+    <div class="course-tabs">${COURSE_GROUPS.map(g => {
+      const n = COURSES.filter(c => c.group === g.id), d = n.filter(c => log[c.id] && log[c.id].ok).length;
+      return `<button class="${g.id === gid ? 'on' : ''}" data-g="${g.id}">${esc(g.short)}<small>${d}/${n.length}</small></button>`;
+    }).join('')}</div>
+    <div class="course-list">${list.map(c => {
+      const l = log[c.id] || { ok: 0, pending: 0 };
+      const st = l.pending ? 'wait' : l.ok ? 'done' : '';
+      return `<button class="course ${st} ${nx && nx.id === c.id ? 'next' : ''}" data-c="${c.id}">
+        <span class="cbox">${l.pending ? '⏳' : l.ok ? '✔' : ''}</span>
+        <span class="cinfo"><b>${esc(c.name)}</b><span>${esc(c.desc)}</span>
+          <small>${c.page ? esc(c.page) + '・' : ''}${c.min ? fmtMin(c.min) + '・' : ''}⭐${courseStarsFor(c.id)}${l.ok > 1 ? `・${l.ok}回` : ''}${l.pending ? '・確認待ち' : ''}</small></span>
+        ${nx && nx.id === c.id ? '<em class="tag">次はこれ</em>' : ''}</button>`;
+    }).join('')}</div>`;
+  $$('.course-tabs button', el).forEach(b => b.onclick = () => { Sound.tap(); go('courses', { g: b.dataset.g }); });
+  $$('.course', el).forEach(b => b.onclick = () => { Sound.tap(); checkCourse(b.dataset.c); });
+};
+async function checkCourse(id) {
+  const c = COURSE_BY_ID[id], l = courseLog()[id];
+  if (S.active) { await modal(`<h2>タイマーで勉強中</h2><p>今の勉強が終わってから、講座をチェックしてね</p><button class="btn gold wide" data-v="ok">OK</button>`); return; }
+  const m = openModal(`<h2>📚 この講座を受けた？</h2>
+    <p class="course-title"><small>${esc(GROUP_BY_ID[c.group].short)}</small><b>${esc(c.name)}</b>${esc(c.desc)}${c.page ? `<small>${esc(c.page)}</small>` : ''}</p>
+    ${l && l.ok ? `<p class="small">前にも${l.ok}回受けているよ。もう一度受けたならチェックしてね</p>` : ''}
+    <label class="lbl">かかった時間</label>
+    <div class="min-row"><input id="cmin" class="input" type="number" inputmode="numeric" min="1" max="${COURSE_MAX_MIN}" value="${c.min || ''}" placeholder="分"><span>分</span></div>
+    <p class="small err" id="cerr"></p>
+    <p class="small">おうちの人が確認すると <b>⭐${courseStarsFor(id)}</b> もらえるよ</p>
+    <div class="m-btns"><button class="btn ghost" data-v="">やめる</button><button class="btn gold" id="cgo">✔ チェックして申請</button></div>`, { dismiss: true });
+  const inp = $('#cmin', m.el);
+  if (!c.min) inp.focus();
+  $('#cgo', m.el).onclick = () => {
+    const v = Math.round(+inp.value);
+    if (!(v >= 1 && v <= COURSE_MAX_MIN)) { $('#cerr', m.el).textContent = `1〜${COURSE_MAX_MIN}分で入力してね`; inp.focus(); return; }
+    m.close('ok');
+    Sound.levelup();
+    const r = finishSession(c.subject, v, v, false, id);
+    go('result', r);
+  };
+}
+
 // ---------- おうちの人の承認 ----------
 function pendingHtml() {
   const ps = pendingSessions();
@@ -190,7 +246,8 @@ async function showReviewNews() {
   const row = n => {
     const sub = SUBJECT_BY_ID[n.subject], d = new Date(n.at);
     const when = `${d.getMonth() + 1}/${d.getDate()}`;
-    if (n.review === 'ng') return `<li class="ng"><span>${when} ${sub.icon}${sub.name} ${fmtMin(n.minutes)}</span><b>見送り</b></li>`;
+    if (n.review === 'ng') return `<li class="ng"><span>${when} ${n.course ? `📚${esc(courseLabel(n.course))}` : `${sub.icon}${sub.name} ${fmtMin(n.minutes)}`}</span><b>見送り</b></li>`;
+    if (n.course) return `<li><span>${when} 📚${esc(courseLabel(n.course))}</span><b>⭐+${n.stars}</b></li>`;
     return `<li><span>${when} ${sub.icon}${sub.name} ${n.okMin ? `<s>${fmtMin(n.minutes)}</s> → ${fmtMin(n.okMin)}` : fmtMin(n.minutes)}</span><b>⭐+${n.stars}</b></li>`;
   };
   if (total) { Sound.levelup(); FX.confetti(100); } else Sound.tap();
@@ -357,12 +414,14 @@ SCREENS.home = el => {
         `<i style="flex:${x.min};background:${x.sub.color}" title="${x.sub.name}">${x.sub.icon}</i>`).join('') : '<span class="muted">まだ記録がありません。さっそく始めよう！</span>'}</div>
     </div>
     ${pendingHtml()}
+    ${courseCardHtml()}
     ${promiseHtml(t)}
     <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
   $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
+  $('#courses').onclick = () => { Sound.tap(); go('courses'); };
   if (S.resetNews) setTimeout(showResetNews, 300);
   else if (S.giftNews && S.giftNews.length) setTimeout(showGiftNews, 300);
   else if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
@@ -569,6 +628,7 @@ SCREENS.result = async (el, r) => {
   const p = S.player, pc = S.chars[r.partner];
   el.innerHTML = `<div class="result">
     <div class="res-title">ナイスファイト！</div>
+    ${r.course ? `<div class="res-course">📚 ${esc(courseLabel(r.course))}</div>` : ''}
     <div class="res-sub">${subjChip(r.subject)}を <b class="big-num" id="rmin">0</b> 分がんばった！</div>
     ${r.goalMet ? '<div class="goal-badge">🎯 目標達成ボーナス！</div>' : ''}
     <div class="card rewards">
@@ -995,7 +1055,7 @@ SCREENS.records = (el, params) => {
     <div class="card"><h3>最近の記録</h3>${recent.length ? recent.map(s => {
       const d = new Date(s.at);
       return `<div class="recent"><span class="muted">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</span>
-        ${subjChip(s.subject)}<b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${s.minutes}</s>→` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '🎯' : ''}${reviewMark(s)}</div>`;
+        ${subjChip(s.subject)}${s.course ? `<small class="rc-course">📚${esc(courseLabel(s.course))}</small>` : ''}<b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${s.minutes}</s>→` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '🎯' : ''}${reviewMark(s)}</div>`;
     }).join('') : '<p class="muted">まだ記録がありません</p>'}</div>`;
   $('#prevm').onclick = () => { Sound.tap(); go('records', { m: off - 1 }); };
   $('#nextm').onclick = () => { Sound.tap(); go('records', { m: off + 1 }); };
@@ -1208,7 +1268,8 @@ async function startCloud() {
   const ok = await Cloud.startChild(S.cloud.pid, {
     onParent: parent => {
       if (!parent || !S.cloud) return;
-      const next = { ...S.parent, target: { ...S.parent.target, ...(parent.target || {}) }, priority: parent.priority || [] };
+      const next = { ...S.parent, target: { ...S.parent.target, ...(parent.target || {}) }, priority: parent.priority || [],
+        courseDefault: parent.courseDefault ?? COURSE_STARS, courseStars: parent.courseStars || {} };
       if (JSON.stringify(next) === JSON.stringify(S.parent)) return;
       S.parent = next;
       saveQuiet();
