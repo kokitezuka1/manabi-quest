@@ -19,37 +19,49 @@ const config = useEmulator ? { apiKey: 'demo-key', authDomain: 'demo-manabi.fire
 
 // 保護者ページとゲームでログイン状態を分ける（同じ端末で保護者がログインしても、子どもの連携が切れないように）
 const role = location.pathname.endsWith('parent.html') ? 'parent' : 'child';
-// SDK は連携を使うときだけ読み込む
+// SDK（約0.5MB）は連携を使うときだけ読み込む。
+// 保護者ページと連携中の子どもの端末は最初に、まだ連携していない端末は「連携する」を押したときに読み込む
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
-const [{ initializeApp }, {
+let initializeApp,
   getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
   signInWithCredential, GoogleAuthProvider, signOut,
-}, {
   getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
-  runTransaction, arrayUnion, arrayRemove, deleteField,
-}] = config ? await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => import(SDK + f))) : [{}, {}, {}];
+  runTransaction, arrayUnion, arrayRemove, deleteField;
+let auth, db, authReady = Promise.resolve(null), sdkLoading = null;
 
-let auth, db;
-if (config) {
-  const app = initializeApp(config, role);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  if (useEmulator) {
-    connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-    connectFirestoreEmulator(db, 'localhost', 8080);
-  }
+function loadSdk() {
+  if (!config) return Promise.reject(new Error('連携は使えません'));
+  if (!sdkLoading) sdkLoading = (async () => {
+    const [a, b, c] = await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => import(SDK + f)));
+    ({ initializeApp } = a);
+    ({ getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
+      signInWithCredential, GoogleAuthProvider, signOut } = b);
+    ({ getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
+      runTransaction, arrayUnion, arrayRemove, deleteField } = c);
+    const app = initializeApp(config, role);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    if (useEmulator) {
+      connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+      connectFirestoreEmulator(db, 'localhost', 8080);
+    }
+    // 最初のログイン状態がわかるまで待つ
+    authReady = new Promise(r => { const off = onAuthStateChanged(auth, u => { off(); r(u); }); });
+  })().catch(e => { sdkLoading = null; throw e; });
+  return sdkLoading;
 }
+const linkedChild = role === 'child' && typeof S !== 'undefined' && !!(S && S.cloud);
+if (config && (role === 'parent' || linkedChild)) await loadSdk();
 
 const famRef = pid => doc(db, 'families', pid);
 const stateRef = pid => doc(db, 'families', pid, 'state', 'child');
-// 最初のログイン状態がわかるまで待つ
-const authReady = config ? new Promise(r => { const off = onAuthStateChanged(auth, u => { off(); r(u); }); }) : Promise.resolve(null);
 
 // ---------- 子ども（ゲーム）側 ----------
 let offs = [];
 const hasChild = (fam, uid) => !!fam && ((fam.childUids || []).includes(uid) || fam.childUid === uid);
 
 async function childUser() {
+  await loadSdk();
   await authReady;
   return auth.currentUser || (await signInAnonymously(auth)).user;
 }
@@ -70,6 +82,7 @@ async function linkChild(code) {
 // 連携中の端末で、保護者の設定とほかの端末の記録を受け取る
 async function startChild(pid, { onParent, onReviews, onReset, onGifts, onRemote, onUnlinked }) {
   stopChild();
+  await loadSdk();
   await authReady;
   const user = auth.currentUser;
   if (!user) return false;   // ブラウザのデータが消えて匿名ログインが切れた → 連携し直しが必要
@@ -92,6 +105,7 @@ function stopChild() { offs.forEach(f => f()); offs = []; }
 
 // クラウドに記録を書く。baseRev より新しい記録がクラウドにあれば、build(クラウドの記録) で合わせてから書く
 async function commit(pid, baseRev, build) {
+  await loadSdk();
   const uid = auth.currentUser && auth.currentUser.uid;
   return runTransaction(db, async tx => {
     const s = await tx.get(stateRef(pid));
@@ -105,7 +119,8 @@ async function commit(pid, baseRev, build) {
   });
 }
 // この端末の連携だけを外す
-function leave(pid) {
+async function leave(pid) {
+  await loadSdk().catch(() => {});
   const uid = auth.currentUser && auth.currentUser.uid;
   return uid ? updateDoc(famRef(pid), { childUids: arrayRemove(uid) }).catch(() => {}) : Promise.resolve();
 }

@@ -61,29 +61,47 @@ const Sound = (() => {
 const FX = (() => {
   const cv = document.getElementById('fx');
   const g = cv.getContext('2d');
-  let parts = [], running = false;
+  let parts = [], running = false, k = 1, star = null;
   const COLORS = ['#ff5c8a', '#ffb300', '#6c5ce7', '#2f9bff', '#2fae5a', '#ff7a45', '#ffe14d'];
-  function resize() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }
+  // 軽量モード（低スペック端末）では、解像度と粒の数を減らす
+  const lite = () => document.documentElement.classList.contains('lite');
+  function resize() {
+    k = Math.min(devicePixelRatio || 1, lite() ? 1 : 2);
+    cv.width = Math.round(innerWidth * k); cv.height = Math.round(innerHeight * k);
+  }
   addEventListener('resize', resize); resize();
+  // ⭐は毎回文字を描かず、1回だけ描いた画像を使い回す
+  function starImg() {
+    if (star) return star;
+    star = document.createElement('canvas');
+    star.width = star.height = 32;
+    const c = star.getContext('2d');
+    c.font = '26px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('⭐', 16, 17);
+    return star;
+  }
   function loop() {
+    g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, cv.width, cv.height);
-    const k = devicePixelRatio;
     parts = parts.filter(p => p.life > 0);
     for (const p of parts) {
       p.vy += p.grav; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
-      g.save();
       g.globalAlpha = Math.min(1, p.life / 30);
-      g.translate(p.x * k, p.y * k); g.rotate(p.rot);
-      g.fillStyle = p.color;
-      if (p.shape === 'star') { g.font = `${p.size * k * 2}px sans-serif`; g.fillText('⭐', 0, 0); }
-      else g.fillRect(-p.size * k / 2, -p.size * k / 4, p.size * k, p.size * k / 2);
-      g.restore();
+      const cs = Math.cos(p.rot) * k, sn = Math.sin(p.rot) * k;
+      g.setTransform(cs, sn, -sn, cs, p.x * k, p.y * k);
+      if (p.shape === 'star') g.drawImage(starImg(), -p.size, -p.size, p.size * 2, p.size * 2);
+      else { g.fillStyle = p.color; g.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); }
     }
-    if (parts.length) requestAnimationFrame(loop); else { running = false; g.clearRect(0, 0, cv.width, cv.height); }
+    g.globalAlpha = 1;
+    if (parts.length) requestAnimationFrame(loop);
+    else { running = false; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); }
   }
   function kick() { if (!running) { running = true; requestAnimationFrame(loop); } }
+  const amount = n => lite() ? Math.ceil(n * 0.35) : n;
   return {
+    resize,
     confetti(n = 120) {
+      n = amount(n);
       for (let i = 0; i < n; i++) parts.push({
         x: Math.random() * innerWidth, y: -20 - Math.random() * 200, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 3,
         grav: 0.05, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, size: 8 + Math.random() * 6,
@@ -92,6 +110,7 @@ const FX = (() => {
       kick();
     },
     burst(x, y, n = 40, stars = false) {
+      n = amount(n);
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2, s = 3 + Math.random() * 6;
         parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, grav: 0.15, rot: 0, vr: (Math.random() - 0.5) * 0.4,
@@ -104,6 +123,22 @@ const FX = (() => {
       this.burst(r.left + r.width / 2, r.top + r.height / 2, n, stars);
     },
   };
+})();
+
+// 低スペック端末の判定：最初の約1.5秒の描画速度を測り、遅ければ軽量モードにする（見た目の演出を減らす）
+(function probeSpeed() {
+  const root = document.documentElement;
+  if (root.classList.contains('lite') || /[?&]lite=0/.test(location.search)) return;
+  let n = 0, t0 = 0;
+  function step(t) {
+    if (document.visibilityState !== 'visible') return;
+    if (!t0) t0 = t;
+    n++;
+    if (t - t0 < 1500) { requestAnimationFrame(step); return; }
+    const fps = (n - 1) / ((t - t0) / 1000);
+    if (fps < 40) { root.classList.add('lite'); FX.resize(); }
+  }
+  setTimeout(() => requestAnimationFrame(step), 800);
 })();
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
