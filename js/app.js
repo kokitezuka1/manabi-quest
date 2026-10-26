@@ -150,6 +150,14 @@ async function runEvents(events) {
       $('#evo-ok', m.el).classList.remove('hidden');
       FX.confetti(160); FX.burstAt($('#evo-av', m.el), 60, true);
       await m.done;
+    } else if (ev.type === 'streakfix') {
+      Sound.levelup(); FX.confetti(120);
+      await modal(`<div class="m-emo fire">${icon('flame')}</div>
+        <h2>連続記録がつながった！</h2>
+        <p>入れ忘れた日が認められて、<b>連続${ev.streak}日</b>になったよ</p>
+        ${ev.tickets ? `<div class="rw-big">🎫+${ev.tickets}</div>` : ''}
+        ${ev.contracts && ev.contracts.length ? contractGotHtml(ev.contracts) : ''}
+        <button class="btn gold wide" data-v="ok">やったー！</button>`, { cls: 'shine' });
     } else if (ev.type === 'clear') {
       Sound.win(); FX.confetti(100);
       const nw = ev.newWorld;
@@ -207,10 +215,11 @@ SCREENS.courses = (el, params) => {
 };
 async function checkCourse(id) {
   const c = COURSE_BY_ID[id], l = courseLog()[id];
-  if (S.active) { await modal(`<h2>タイマーで勉強中</h2><p>今の勉強が終わってから、講座をチェックしてね</p><button class="btn gold wide" data-v="ok">OK</button>`); return; }
   const m = openModal(`<h2>📚 この講座を受けた？</h2>
     <p class="course-title"><small>${esc(GROUP_BY_ID[c.group].short)}</small><b>${esc(c.name)}</b>${esc(c.desc)}${c.page ? `<small>${esc(c.page)}</small>` : ''}</p>
     ${l && l.ok ? `<p class="small">前にも${l.ok}回受けているよ。もう一度受けたならチェックしてね</p>` : ''}
+    <label class="lbl">いつ受けた？</label>
+    <select id="cday" class="input">${lateDayOptions()}</select>
     <label class="lbl">かかった時間</label>
     <div class="min-row"><input id="cmin" class="input" type="number" inputmode="numeric" min="1" max="${COURSE_MAX_MIN}" value="${c.min || ''}" placeholder="分"><span>分</span></div>
     <p class="small err" id="cerr"></p>
@@ -221,10 +230,73 @@ async function checkCourse(id) {
   $('#cgo', m.el).onclick = () => {
     const v = Math.round(+inp.value);
     if (!(v >= 1 && v <= COURSE_MAX_MIN)) { $('#cerr', m.el).textContent = `1〜${COURSE_MAX_MIN}分で入力してね`; inp.focus(); return; }
+    const day = $('#cday', m.el).value;
+    if (day !== today()) {   // 前の日に受けた講座は、入れ忘れとして申請する
+      m.close('ok');
+      sendLate({ date: day, subject: c.subject, minutes: v, course: id });
+      return;
+    }
+    if (S.active) { $('#cerr', m.el).textContent = 'タイマーで勉強中だよ。終わってからチェックしてね'; return; }
     m.close('ok');
     Sound.levelup();
     const r = finishSession(c.subject, v, v, false, id);
     go('result', r);
+  };
+}
+
+// ---------- 入れ忘れ ----------
+function lateDayOptions(sel = today()) {
+  return Array.from({ length: LATE_DAYS + 1 }, (_, i) => {
+    const k = dayOffset(today(), -i), [, m, d] = k.split('-').map(Number);
+    const label = i === 0 ? '今日' : i === 1 ? '昨日' : `${i}日前`;
+    return `<option value="${k}" ${k === sel ? 'selected' : ''}>${label}（${m}/${d}）</option>`;
+  }).join('');
+}
+async function sendLate(opts) {
+  const s = addLateSession(opts);
+  if (!s) return;
+  Sound.coin();
+  await modal(`<div class="m-emo gold">📨</div><h2>おうちの人に申請したよ</h2>
+    <p>${s.course ? `📚 ${esc(courseLabel(s.course))}` : `${SUBJECT_BY_ID[s.subject].icon} ${SUBJECT_BY_ID[s.subject].name}`}　${fmtMin(s.minutes)}</p>
+    <p class="small">おうちの人が確認すると、⭐${s.stars}・経験値・冒険のダメージが入るよ。連続記録もつながるよ</p>
+    <button class="btn gold wide" data-v="ok">OK</button>`);
+  render();
+}
+// 記録の画面から：タイマーをつけ忘れた勉強や、チェックし忘れた講座を足す
+async function openLateModal() {
+  let kind = 'subject';
+  const nx = nextCourse();
+  const m = openModal(`<h2>✏️ 入れ忘れを追加</h2>
+    <p class="small">タイマーをつけ忘れた勉強や、チェックし忘れた講座を、${LATE_DAYS}日前まで足せるよ。おうちの人が確認したら入るよ</p>
+    <label class="lbl">いつ？</label>
+    <div class="min-row"><select id="lday" class="input">${lateDayOptions(dayOffset(today(), -1))}</select>
+      <input id="lend" class="input" type="time" value="19:00" aria-label="終わった時刻"></div>
+    <div class="late-kind"><button class="on" data-k="subject">教科</button><button data-k="course">講座</button></div>
+    <div id="lsub" class="late-subjects">${SUBJECTS.map((s, i) => `<button class="${i === 0 ? 'on' : ''}" data-s="${s.id}" style="--c:${s.color}">${s.icon}${s.name}</button>`).join('')}</div>
+    <select id="lcourse" class="input gone">${COURSE_GROUPS.map(g => `<optgroup label="${esc(g.short)}">${COURSES.filter(c => c.group === g.id).map(c =>
+      `<option value="${c.id}" ${nx && nx.id === c.id ? 'selected' : ''}>${esc(c.name)} ${esc(c.desc)}</option>`).join('')}</optgroup>`).join('')}</select>
+    <label class="lbl">かかった時間</label>
+    <div class="min-row"><input id="lmin" class="input" type="number" inputmode="numeric" min="1" max="${COURSE_MAX_MIN}" placeholder="分"><span>分</span></div>
+    <p class="small err" id="lerr"></p>
+    <div class="m-btns"><button class="btn ghost" data-v="">やめる</button><button class="btn gold" id="lgo">申請する</button></div>`, { dismiss: true });
+  const el = m.el;
+  let subject = SUBJECTS[0].id;
+  const setCourseMin = () => { const c = COURSE_BY_ID[$('#lcourse', el).value]; if (c && c.min) $('#lmin', el).value = c.min; };
+  $$('.late-kind button', el).forEach(b => b.onclick = () => {
+    kind = b.dataset.k;
+    $$('.late-kind button', el).forEach(x => x.classList.toggle('on', x === b));
+    $('#lsub', el).classList.toggle('gone', kind !== 'subject');
+    $('#lcourse', el).classList.toggle('gone', kind !== 'course');
+    if (kind === 'course') setCourseMin();
+  });
+  $$('#lsub button', el).forEach(b => b.onclick = () => { subject = b.dataset.s; $$('#lsub button', el).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#lcourse', el).onchange = setCourseMin;
+  $('#lgo', el).onclick = () => {
+    const v = Math.round(+$('#lmin', el).value);
+    if (!(v >= 1 && v <= COURSE_MAX_MIN)) { $('#lerr', el).textContent = `時間は1〜${COURSE_MAX_MIN}分で入力してね`; $('#lmin', el).focus(); return; }
+    const course = kind === 'course' ? $('#lcourse', el).value : null;
+    m.close('ok');
+    sendLate({ date: $('#lday', el).value, subject: course ? COURSE_BY_ID[course].subject : subject, minutes: v, course, endTime: $('#lend', el).value || '19:00' });
   };
 }
 
@@ -247,7 +319,8 @@ async function showReviewNews() {
     const sub = SUBJECT_BY_ID[n.subject], d = new Date(n.at);
     const when = `${d.getMonth() + 1}/${d.getDate()}`;
     if (n.review === 'ng') return `<li class="ng"><span>${when} ${n.course ? `📚${esc(courseLabel(n.course))}` : `${sub.icon}${sub.name} ${fmtMin(n.minutes)}`}</span><b>見送り</b></li>`;
-    if (n.course) return `<li><span>${when} 📚${esc(courseLabel(n.course))}</span><b>⭐+${n.stars}</b></li>`;
+    if (n.course) return `<li><span>${when} 📚${esc(courseLabel(n.course))}${n.late ? ' <em class="tag">入れ忘れ</em>' : ''}</span><b>⭐+${n.stars}</b></li>`;
+    if (n.late) return `<li><span>${when} ${sub.icon}${sub.name} ${fmtMin(n.okMin ?? n.minutes)} <em class="tag">入れ忘れ</em></span><b>⭐+${n.stars}</b></li>`;
     return `<li><span>${when} ${sub.icon}${sub.name} ${n.okMin ? `<s>${fmtMin(n.minutes)}</s> → ${fmtMin(n.okMin)}` : fmtMin(n.minutes)}</span><b>⭐+${n.stars}</b></li>`;
   };
   if (total) { Sound.levelup(); FX.confetti(100); } else Sound.tap();
@@ -256,9 +329,18 @@ async function showReviewNews() {
     <ul class="review-list">${news.map(row).join('')}</ul>
     ${total ? `<div class="rw-big">⭐+${total}</div>` : '<p class="small">今回は⭐は入らなかったよ。次はがんばろう！</p>'}
     <button class="btn gold wide" data-v="ok">${total ? 'やったー！' : 'OK'}</button>`, { cls: total ? 'shine' : '' });
+  await runQueuedEvents();
   showingNews = false;
   renderTopbar(); renderNav();
   if (current.name === 'home') render();
+}
+// 承認されたときに起きたできごと（入れ忘れの分のレベルアップ・ステージクリア・連続記録）
+async function runQueuedEvents() {
+  if (!S.eventQueue || !S.eventQueue.length) return;
+  const q = S.eventQueue;
+  S.eventQueue = [];
+  save();
+  await runEvents(q);
 }
 // ---------- 仲間のリセット ----------
 async function showResetNews() {
@@ -425,6 +507,10 @@ SCREENS.home = el => {
   if (S.resetNews) setTimeout(showResetNews, 300);
   else if (S.giftNews && S.giftNews.length) setTimeout(showGiftNews, 300);
   else if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
+  else if (S.eventQueue && S.eventQueue.length) setTimeout(async () => {
+    if (showingNews || $('.modal-back') || current.name !== 'home') return;
+    showingNews = true; await runQueuedEvents(); showingNews = false; render();
+  }, 300);
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
     if (!b) return;
@@ -1037,9 +1123,11 @@ SCREENS.records = (el, params) => {
 
   const subTotals = SUBJECTS.map(sub => ({ sub, min: S.sessions.filter(s => s.subject === sub.id).reduce((a, s) => a + sessionMin(s), 0) }));
   const sMax = Math.max(1, ...subTotals.map(x => x.min));
-  const recent = S.sessions.slice(-10).reverse();
+  // 最近の10件と、確認待ちの記録（前の日に足した入れ忘れも見えるように）
+  const recent = [...new Set([...S.sessions.slice(-10), ...pendingSessions()])].sort((a, b) => b.at - a.at);
 
   el.innerHTML = `<h2 class="page-title">記録</h2>
+    <button class="btn ghost wide late-btn" id="addlate">✏️ 入れ忘れを追加（${LATE_DAYS}日前まで）</button>
     <div class="stat-grid big">
       <div><small>合計</small><b>${fmtMin(totalMin)}</b></div>
       <div><small>勉強した日数</small><b>${days}日</b></div>
@@ -1058,13 +1146,14 @@ SCREENS.records = (el, params) => {
         ${subjChip(s.subject)}${s.course ? `<small class="rc-course">📚${esc(courseLabel(s.course))}</small>` : ''}<b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${s.minutes}</s>→` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '🎯' : ''}${reviewMark(s)}</div>`;
     }).join('') : '<p class="muted">まだ記録がありません</p>'}</div>`;
   $('#prevm').onclick = () => { Sound.tap(); go('records', { m: off - 1 }); };
+  $('#addlate').onclick = () => { Sound.tap(); openLateModal(); };
   $('#nextm').onclick = () => { Sound.tap(); go('records', { m: off + 1 }); };
 };
 
 function reviewMark(s) {
-  return s.review === 'pending' ? '<span class="rv wait" title="おうちの人の確認待ち">⏳</span>'
+  return (s.late ? '<span class="rv late" title="入れ忘れを足した記録">✏️</span>' : '') + (s.review === 'pending' ? '<span class="rv wait" title="おうちの人の確認待ち">⏳</span>'
     : s.review === 'ok' ? `<span class="rv ok" title="承認">⭐${s.gotStars}</span>`
-    : s.review === 'ng' ? '<span class="rv ng" title="見送り">✖</span>' : '';
+    : s.review === 'ng' ? '<span class="rv ng" title="見送り">✖</span>' : '');
 }
 
 // ---------- 設定 ----------

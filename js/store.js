@@ -26,6 +26,7 @@ function defaultState() {
     resetNews: null,           // リセットされたことのお知らせ（まだ子どもに見せていないもの）
     gifts: [],                 // おうちの人からもらった⭐のプレゼント { id, stars, msg, at }（最近の50件）
     giftNews: [],              // まだ子どもに見せていないプレゼント
+    eventQueue: [],            // 承認で起きたできごと（レベルアップ・ステージクリアなど）。ゲームで順に見せる
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
@@ -352,7 +353,8 @@ function reviewStars(s, min) {
 // おうちの人の判断 { [記録のat]: { st: 'ok' | 'ng', min: 承認する分数 } } を、承認待ちの記録に当てはめて⭐を入れる
 function applyReviews(decisions) {
   if (!decisions || !S.player) return 0;
-  const news = [];
+  const news = [], events = [];
+  let lateOk = false;
   for (const s of S.sessions) {
     const d = s.review === 'pending' && decisions[s.at];
     if (!d) continue;
@@ -362,15 +364,71 @@ function applyReviews(decisions) {
       s.gotStars = reviewStars(s, min);
       s.review = 'ok';
       S.player.stars += s.gotStars;
+      if (s.late) { lateRewards(s, min, events); lateOk = true; }
     } else if (d.st === 'ng') {
       s.review = 'ng';
     } else continue;
-    news.push({ at: s.at, subject: s.subject, minutes: s.minutes, okMin: s.okMin, review: s.review, stars: s.gotStars || 0, course: s.course });
+    news.push({ at: s.at, subject: s.subject, minutes: s.minutes, okMin: s.okMin, review: s.review, stars: s.gotStars || 0, course: s.course, late: s.late });
   }
   if (!news.length) return 0;
+  if (lateOk) fillStreak(events);
   S.reviewNews = [...(S.reviewNews || []), ...news].slice(-30);
+  S.eventQueue = [...(S.eventQueue || []), ...events].slice(-20);
   save();
   return news.length;
+}
+
+// ---------- 入れ忘れ（あとから申請） ----------
+const LATE_DAYS = 7;   // 何日前までさかのぼれるか
+// 入れ忘れた勉強を申請する。⭐・経験値・仲間の成長・冒険のダメージ・連続記録は、承認されたら入る
+function addLateSession({ date, subject, minutes, course = null, endTime = '19:00' }) {
+  const t = today();
+  if (!(date <= t && date >= dayOffset(t, -LATE_DAYS))) return null;
+  const [y, m, d] = date.split('-').map(Number), [hh, mm] = endTime.split(':').map(Number);
+  let at = Math.min(new Date(y, m - 1, d, hh || 0, mm || 0).getTime(), Date.now());
+  while (S.sessions.some(s => s.at === at)) at++;   // 承認の目印なので重ならないように
+  const stars = course ? courseStarsFor(course) : starsFor(minutes, false, subject);
+  const s = { subject, minutes, goal: minutes, goalMet: false, date, at, stars, prio: !course && isPriority(subject),
+    review: 'pending', late: true, ...(course ? { course } : {}) };
+  S.sessions.push(s);
+  S.sessions.sort((a, b) => a.at - b.at);
+  save();
+  return s;
+}
+// 承認された入れ忘れの分の経験値・仲間の成長・冒険のダメージ
+function lateRewards(s, min, events) {
+  addXp(min * 10, events);
+  const partner = S.partner;
+  if (partner && S.chars[partner]) {
+    const match = CHAR_BY_ID[partner].el === SUBJECT_BY_ID[s.subject].el;
+    addCharExp(partner, Math.round(min * 10 * (match ? 1.5 : 1)), events);
+    dealDamage(min, s.subject, events);
+  }
+}
+// 入れ忘れが承認されたら、勉強した日をつなぎ直して連続記録を伸ばす（今の連続記録は減らさない）
+function fillStreak(events) {
+  const days = new Set(S.sessions.filter(s => s.review !== 'ng' && !(s.late && s.review === 'pending')).map(s => s.date));
+  if (S.streak.last) for (let i = 0; i < S.streak.count; i++) days.add(dayOffset(S.streak.last, -i));
+  const last = [...days].sort().pop();
+  if (!last) return;
+  let count = 0;
+  while (days.has(dayOffset(last, -count))) count++;
+  if (last < S.streak.last || (last === S.streak.last && count <= S.streak.count)) return;
+  // 前の連続記録とつながったなら、その日数までの節目はもうもらっている
+  const before = S.streak.last && dayOffset(last, -(count - 1)) <= S.streak.last ? S.streak.count : 0;
+  S.streak = { count, last };
+  const now = currentStreak();   // 今日か昨日まで続いていなければ、過去の記録を直しただけ
+  if (!now || now <= before) return;
+  // 新しく届いた節目（3・7・14…日）のチケットと契約書
+  let tickets = 0;
+  const contracts = [];
+  for (let n = before + 1; n <= now; n++) {
+    if ([3, 7, 14, 21, 30, 50, 100].includes(n)) tickets += n >= 7 ? 2 : 1;
+    if (STREAK_CONTRACTS[n]) contracts.push(STREAK_CONTRACTS[n]);
+  }
+  S.player.tickets += tickets;
+  contracts.forEach(addContract);
+  events.push({ type: 'streakfix', from: before, streak: now, tickets, contracts });
 }
 // 記録から、承認・却下が決まったものを取り出す（ほかのタブで承認されたときに使う）
 function decisionsFrom(sessions) {

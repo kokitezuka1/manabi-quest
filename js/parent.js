@@ -223,9 +223,9 @@ function reviewHtml() {
     ${todo.length ? `<ul class="rv-list">${todo.slice().reverse().map(s => {
       const sub = SUBJECT_BY_ID[s.subject];
       return `<li data-at="${s.at}">
-        <div class="rv-head"><span class="rv-when">${dayLabel(s.date)} ${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
+        <div class="rv-head"><span class="rv-when">${dayLabel(s.date)} ${s.late ? '<em class="tag late">入れ忘れ・あとから申請</em>' : `${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}`}</span>
           <span class="rv-sub">${s.course ? `📚 ${esc(courseName(s.course))}` : `${sub.icon} ${sub.name}`}${s.prio ? '<em class="prio">優先</em>' : ''}</span></div>
-        <div class="rv-body"><label class="rv-min"><input type="number" inputmode="numeric" min="1" max="${s.minutes}" value="${s.minutes}"> 分<small>申請 ${fmtMin(s.minutes)}${s.goalMet ? `・目標${s.goal}分達成` : ''}${s.course ? '・講座の⭐は時間によらず一定' : ''}</small></label>
+        <div class="rv-body"><label class="rv-min"><input type="number" inputmode="numeric" min="1" max="${s.minutes}" value="${s.minutes}"> 分<small>申請 ${fmtMin(s.minutes)}${s.goalMet ? `・目標${s.goal}分達成` : ''}${s.course ? '・講座の⭐は時間によらず一定' : ''}${s.late ? '・承認すると経験値・冒険・連続記録にも入ります' : ''}</small></label>
           <span class="rv-star">⭐<b>${s.stars}</b></span></div>
         <div class="rv-btns"><button class="btn ghost rv-ng">却下</button><button class="btn rv-ok">承認</button></div></li>`;
     }).join('')}</ul>
@@ -473,13 +473,16 @@ function dayHtml() {
         <span class="smin">${fmtMin(x.min)}</span></div>`).join('')}</div>`
       : '<p class="muted">この日の記録はありません。</p>'}
     ${ss.length ? `<h3>記録</h3><ul class="sessions">${ss.slice().reverse().map(s => `<li>
-        <span class="time">${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}</span>
+        <span class="time">${s.late ? `〜${hhmm(s.at)}ごろ` : `${hhmm(s.at - s.minutes * 60000)}〜${hhmm(s.at)}`}</span>
         <span>${SUBJECT_BY_ID[s.subject].icon} ${SUBJECT_BY_ID[s.subject].name}${s.course ? `<small class="sc">📚 ${esc(courseName(s.course))}</small>` : ''}</span>
         <b class="${s.review === 'ng' ? 'ng' : ''}">${s.okMin ? `<s>${fmtMin(s.minutes)}</s> ` : ''}${fmtMin(s.okMin ?? s.minutes)}</b>${s.goalMet ? '<span class="tag">目標達成</span>' : ''}${reviewTag(s)}</li>`).join('')}</ul>` : ''}
   </section>`;
 }
 
 function reviewTag(s) {
+  return (s.late ? '<span class="tag late">入れ忘れ</span>' : '') + reviewState(s);
+}
+function reviewState(s) {
   if (s.review === 'pending') return sentReviews()[s.at] ? '<span class="tag">反映待ち</span>' : '<span class="tag wait">承認待ち</span>';
   if (s.review === 'ok') return `<span class="tag ok">承認 ⭐${s.gotStars}</span>`;
   if (s.review === 'ng') return '<span class="tag ng">却下</span>';

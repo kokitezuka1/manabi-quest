@@ -195,3 +195,4 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0 4px; }
 .clist .cs { display: flex; align-items: center; gap: 2px; font-size: 13px; flex: none; }
 .clist .cs input { width: 64px; padding: 4px 6px; }
 .sessions .sc { display: block; font-size: 11px; color: var(--sub); }
+.tag.late { color: var(--accent); background: var(--accent-soft); font-style: normal; }

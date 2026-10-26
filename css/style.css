@@ -576,3 +576,16 @@ b { font-weight: 800; }
 .min-row .input { width: 120px; }
 .res-course { font-size: 14px; color: var(--sub); margin-top: 6px; }
 .rc-course { font-size: 11px; color: var(--sub); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- 入れ忘れ ---- */
+.late-btn { margin-bottom: 12px; }
+.late-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0 8px; }
+.late-kind button, .late-subjects button { font: inherit; font-size: 14px; color: var(--ink); background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; cursor: pointer; }
+.late-kind button.on { border-color: var(--cyan); background: rgba(56, 217, 255, .15); }
+.late-subjects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.late-subjects button.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); }
+.modal select.input { font-size: 16px; padding: 10px; }
+.modal .min-row select.input { flex: 1; }
+.modal .min-row input[type=time] { width: auto; min-width: 130px; }
+.rv.late { margin-left: 2px; }
+.gone { display: none !important; }
