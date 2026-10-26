@@ -6,10 +6,19 @@
   <meta name="theme-color" content="#0d1024">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>学びクエスト</title>
+  <script>
+    // 低スペック端末・動きを減らす設定の端末では、最初から軽量モード（演出を控えめに）にする
+    (function () {
+      var n = navigator, q = location.search, mem = n.deviceMemory, cpu = n.hardwareConcurrency;
+      var apple = /iPhone|iPad|iPod|Macintosh/.test(n.userAgent);
+      var slow = (mem && mem <= 2) || (!apple && cpu && cpu <= 4) || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+      if (/[?&]lite=1/.test(q) || (slow && !/[?&]lite=0/.test(q))) document.documentElement.className += ' lite';
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=M+PLUS+1p:wght@500;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=14">
+  <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body>
   <div id="app">
@@ -19,14 +28,14 @@
   </div>
   <div id="modal-root"></div>
   <canvas id="fx"></canvas>
-  <script src="js/icons.js?v=14"></script>
-  <script src="js/data.js?v=14"></script>
-  <script src="js/maps.js?v=14"></script>
-  <script src="js/courses.js?v=14"></script>
-  <script src="js/store.js?v=14"></script>
-  <script src="js/fx.js?v=14"></script>
-  <script src="js/app.js?v=14"></script>
-  <script src="js/firebase-config.js?v=14"></script>
-  <script type="module" src="js/cloud.js?v=14"></script>
+  <link rel="prefetch" href="js/maps.js?v=15" as="script">
+  <script src="js/icons.js?v=15"></script>
+  <script src="js/data.js?v=15"></script>
+  <script src="js/courses.js?v=15"></script>
+  <script src="js/store.js?v=15"></script>
+  <script src="js/fx.js?v=15"></script>
+  <script src="js/app.js?v=15"></script>
+  <script src="js/firebase-config.js?v=15"></script>
+  <script type="module" src="js/cloud.js?v=15"></script>
 </body>
 </html>

@@ -27,7 +27,9 @@ function render() {
   const el = $('#screen');
   el.innerHTML = '';
   el.className = 'screen-' + current.name;
-  SCREENS[current.name](el, current.params);
+  const shown = current, ret = SCREENS[current.name](el, current.params);
+  // 演出の途中で別の画面に移ったときは、残った演出のエラーは気にしない
+  if (ret && ret.catch) ret.catch(e => { if (current === shown) throw e; });
 }
 
 // ---------- 部品 ----------
@@ -800,7 +802,23 @@ SCREENS.result = async (el, r) => {
 // ---------- 冒険（世界一周マップ） ----------
 function cityState(i) { return i < S.stage.i ? 'cleared' : i === S.stage.i ? 'now' : 'locked'; }
 
+// 地図データ（約0.5MB）は冒険画面を開いたときに読み込む
+const ASSET_V = (document.currentScript && new URL(document.currentScript.src).searchParams.get('v')) || '';
+let mapsLoading = null;
+function loadMaps() {
+  if (typeof MAPS !== 'undefined') return Promise.resolve();
+  if (!mapsLoading) mapsLoading = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'js/maps.js?v=' + ASSET_V;
+    sc.onload = res;
+    sc.onerror = () => { mapsLoading = null; sc.remove(); rej(new Error('map')); };
+    document.head.appendChild(sc);
+  });
+  return mapsLoading;
+}
+
 function mapSvg(region, base) {
+  if (typeof MAPS === 'undefined') return '<div class="map-loading">地図を読み込み中…</div>';
   const m = MAPS[region.id];
   const cities = CITIES.filter(c => c.region === region.id);
   const idx = c => base + CITIES.indexOf(c);
@@ -854,6 +872,10 @@ SCREENS.adventure = (el, params) => {
   $$('.region-tabs button', el).forEach(b => b.onclick = () => { Sound.tap(); go('adventure', { r: +b.dataset.r }); });
   $$('[data-i]', el).forEach(b => b.onclick = () => { Sound.tap(); cityModal(+b.dataset.i); });
   $('#adv-go').onclick = () => { Sound.tap(); go('setup', { subject: now.city.subject }); };
+  if (typeof MAPS === 'undefined') loadMaps().then(() => { if (current.name === 'adventure') render(); }, () => {
+    const ld = $('.map-loading', el);
+    if (ld) ld.textContent = '地図を読み込めませんでした。電波のよい所で開き直してください。';
+  });
 };
 
 // 街の詳細（守護者・弱点教科・豆知識）
