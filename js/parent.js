@@ -50,7 +50,7 @@ function render() {
       <a class="btn" href="index.html">ゲームを開く</a></section>`;
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + pinHtml() + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + quizHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + pinHtml() + footHtml();
   bind();
   bindCourse();
   bindReview();
@@ -98,7 +98,7 @@ function renderCloud(root) {
     bindCloud();
     return;
   }
-  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + accountHtml(true) + footHtml();
+  root.innerHTML = headerHtml() + reviewHtml() + giftHtml() + quizHtml() + dayHtml() + weekHtml() + settingsHtml() + courseHtml() + resetHtml() + accountHtml(true) + footHtml();
   bind();
   bindCourse();
   bindCloud();
@@ -205,6 +205,19 @@ function headerHtml() {
     <div><p class="eyebrow">学びクエスト</p><h1>保護者ページ</h1></div>
     ${p ? `<div class="kid"><b>${esc(p.name)}</b> さん<small>Lv.${p.level}・連続 ${currentStreak()}日</small></div>` : ''}
   </header>`;
+}
+
+// ---------- きみ専用ドリル ----------
+function quizHtml() {
+  const p = Quiz.profile(S);
+  if (!p.total) return `<section class="card quiz"><h2>きみ専用ドリル</h2><p class="muted">まだ解いていません。お子さまがドリルを始めると、得意・苦手と出題の方針がここに出ます。</p></section>`;
+  const row = t => `<li><b>${esc(t.name)}</b><span>${Math.round(t.acc * 100)}%（${t.n}問・${t.sec}秒）</span></li>`;
+  const tagList = (list, none) => list.length ? `<ul class="qz-list">${list.slice(0, 4).map(row).join('')}</ul>` : `<p class="muted">${none}</p>`;
+  return `<section class="card quiz"><h2>きみ専用ドリル</h2>
+    <p class="note">全${p.total}問・正答率${Math.round(p.acc * 100)}%・1問${p.avgSec}秒。1セット${p.setSize}問。</p>
+    <ul class="qz-advice">${Quiz.advice(S).map(a => `<li>${esc(a)}</li>`).join('')}</ul>
+    <h3>苦手</h3>${tagList(p.weak, '今のところ苦手と言えるものはありません')}
+    <h3>得意</h3>${tagList(p.strong, 'まだ判定できていません')}</section>`;
 }
 
 // ---------- 勉強の承認 ----------

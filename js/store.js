@@ -34,6 +34,8 @@ function defaultState() {
     contracts: {},             // 持っている契約書 { a: 枚数, s: 枚数, ssel: 枚数 }
     gv: 2,                     // ガチャのルールの版（2 = D〜Sランク・限界突破）
     settings: { sound: true, lastGoal: 15, lastSubject: null },
+    sw: SW.blank(),            // 期間限定イベント（社会フラッシュカード）の記録
+    quiz: Quiz.blankQuiz(),    // きみ専用ドリルの記録（タグごとの正答率・速さ・難しさと、答えのログ）
     active: null,              // タイマー実行中の情報
     parent: defaultParent(),   // 保護者ページで決める目標時間と優先教科
     cloud: null,               // 保護者と連携中なら { pid: 保護者のID }
@@ -105,13 +107,14 @@ function mergeSaves(a, b) {
   const key = x => x.at + '|' + x.subject + '|' + x.minutes;
   const seen = new Set(newer.sessions.map(key));
   const extra = older.sessions.filter(x => !seen.has(key(x)));
-  if (!extra.length) return { ...newer };
-  return { ...newer, sessions: [...newer.sessions, ...extra].sort((x, y) => x.at - y.at) };
+  const quiz = Quiz.merge(newer.quiz, older.quiz);
+  if (!extra.length) return { ...newer, quiz };
+  return { ...newer, quiz, sessions: [...newer.sessions, ...extra].sort((x, y) => x.at - y.at) };
 }
 
 // ---------- プレイヤー ----------
 function startGame(name, starterId) {
-  const keep = { parent: S.parent, cloud: S.cloud };   // 連携と保護者の設定は引き継ぐ
+  const keep = { parent: S.parent, cloud: S.cloud, quiz: S.quiz };   // 連携・保護者の設定・ドリルの記録は引き継ぐ
   S = { ...defaultState(), ...keep };
   S.player = { name, level: 1, xp: 0, stars: 0, tickets: 1, createdAt: Date.now() };
   S.chars[starterId] = { level: 1, exp: 0, count: 1, lb: 0 };

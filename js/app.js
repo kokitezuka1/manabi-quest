@@ -20,7 +20,7 @@ function go(name, params = {}) {
 
 function render() {
   ensureDaily();
-  const full = ['onboard', 'timer', 'result', 'setup'].includes(current.name);
+  const full = ['onboard', 'timer', 'result', 'setup', 'quiz', 'evcards'].includes(current.name);
   document.body.classList.toggle('fullmode', full);
   renderTopbar();
   renderNav();
@@ -78,6 +78,7 @@ function renderNav() {
     ['zukan', 'battle-gear', '仲間', 0],
     ['records', 'scroll-unfurled', '記録', 0],
   ];
+  if (typeof SW !== 'undefined' && SW.active()) items.push(['event', 'laurel-crown', 'イベント', swNavBadge()]);
   nav.innerHTML = items.map(([id, ic, label, badge]) =>
     `<button class="nav-btn ${current.name === id ? 'on' : ''}" data-go="${id}">
       <span class="nav-ic">${icon(ic)}</span><span>${label}</span>${badge ? `<i class="badge">${badge}</i>` : ''}</button>`).join('');
@@ -499,6 +500,8 @@ SCREENS.home = el => {
     </div>
     ${pendingHtml()}
     ${courseCardHtml()}
+    ${swHomeCardHtml()}
+    ${quizHomeCardHtml()}
     ${promiseHtml(t)}
     <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
@@ -506,9 +509,12 @@ SCREENS.home = el => {
   $('#trivia').onclick = () => { Sound.tap(); cityModal(st.i); };
   if ($('#ghint')) $('#ghint').onclick = () => { Sound.tap(); go('gacha'); };
   $('#courses').onclick = () => { Sound.tap(); go('courses'); };
+  if ($('#sw-go')) $('#sw-go').onclick = () => { Sound.tap(); go('event'); };
+  $('#quiz-go').onclick = () => { Sound.tap(); go('quiz'); };
   if (S.resetNews) setTimeout(showResetNews, 300);
   else if (S.giftNews && S.giftNews.length) setTimeout(showGiftNews, 300);
   else if (S.reviewNews && S.reviewNews.length) setTimeout(showReviewNews, 300);
+  else if (SW.active() && !S.sw.intro) setTimeout(showSwIntro, 300);
   else if (S.eventQueue && S.eventQueue.length) setTimeout(async () => {
     if (showingNews || $('.modal-back') || current.name !== 'home') return;
     showingNews = true; await runQueuedEvents(); showingNews = false; render();
@@ -1087,7 +1093,7 @@ async function charDetail(id) {
   const c = CHAR_BY_ID[id], o = S.chars[id];
   if (!o) {
     await modal(`<div class="m-av"><div class="avatar silhouette" style="--sz:110px">${icon(c.forms[0])}</div></div>
-      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}${c.limited ? ' <em class="lim">限定</em>' : ''}</p><p>${c.limited ? 'イベントのピックアップガチャでしか出会えない、限定の仲間だよ' : 'ガチャや契約書で出会えるかも…！'}</p>
+      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}${c.limited ? ' <em class="lim">限定</em>' : ''}</p><p>${c.limited ? (c.event ? '期間限定イベントの報酬でしか出会えない、限定の仲間だよ' : 'イベントのピックアップガチャでしか出会えない、限定の仲間だよ') : 'ガチャや契約書で出会えるかも…！'}</p>
       <button class="btn gold wide" data-v="ok">閉じる</button>`, { dismiss: true });
     return;
   }
@@ -1382,7 +1388,7 @@ function onRemote(r) {
 function refreshAfterSync() {
   if (!S.player) return;
   if ($('.modal-back') || $('.g-overlay')) { renderTopbar(); renderNav(); return; }
-  if (['home', 'adventure', 'zukan', 'records', 'gacha'].includes(current.name)) render();
+  if (['home', 'adventure', 'zukan', 'records', 'gacha', 'event'].includes(current.name)) render();
   else { renderTopbar(); renderNav(); }
 }
 

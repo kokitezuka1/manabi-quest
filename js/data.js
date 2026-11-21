@@ -106,6 +106,7 @@ const CHARACTERS = [
   { id: 'pumpkin', el: 'fire',    r: 5, limited: true, forms: ['pumpkin', 'pumpkin-lantern', 'witch-face'], names: ['パンプキン', 'ジャック・オ・ランタン', 'パンプキンウィッチ'] },
   { id: 'luna',    el: 'flower',  r: 5, limited: true, forms: ['rabbit', 'star-swirl', 'moon'], names: ['ツキウサギ', 'スターラビット', 'ルナ'] },
   { id: 'mage',    el: 'mystery', r: 4, limited: true, forms: ['magic-hat', 'crystal-ball', 'crystal-wand'], names: ['マジックハット', 'クリスタルボール', 'アークメイジ'] },
+  { id: 'nihon',    el: 'earth',   r: 5, limited: true, event: 'shakai-week', forms: ['treasure-map', 'tortoise', 'dragon-head'], names: ['チズぼうや', 'ニッポンガメ', '列島の主ガイア'] },
   { id: 'hanabi',  el: 'light',   r: 4, limited: true, forms: ['paper-lantern', 'lantern-flame', 'firework-rocket'], names: ['チョウチン', 'ランタンボーイ', 'ハナビ'] },
 ];
 const CHAR_BY_ID = Object.fromEntries(CHARACTERS.map(c => [c.id, c]));
@@ -365,6 +366,19 @@ const CITIES = [
     facts: ['794年に平安京として都になり、1000年以上にわたって日本の都だった。',
             '清水寺や金閣（鹿苑寺）など17の寺社や城が「古都京都の文化財」として世界遺産に登録されている。'] },
 ];
+// 2026-11-03 の全国統一小学生テストの結果（社会34.0・国語36.7・理科44.0・算数58.8）をもとに、街の弱点教科の割合を調整した。
+// 弱点教科を勉強するとボスへのダメージが2倍。社会14・国語13・理科10・算数7・英語6・その他4（全54街）。
+// 元の弱点と違う街は、豆知識（facts）はそのままで、弱点の理由だけを差し替える。
+const WEAK_PLAN = { lasvegas: 'shakai', chicago: 'shakai', nashville: 'shakai', hartford: 'shakai', london: 'shakai',
+  paris: 'kokugo', petra: 'kokugo', baghdad: 'kokugo', delhi: 'kokugo', singapore: 'rika' };
+for (const c of CITIES) {
+  const s = WEAK_PLAN[c.id];
+  if (s && s !== c.subject) {
+    c.subject0 = c.subject;
+    c.subject = s;
+    c.why = 'テスト結果から、いまのきみにいちばん効く教科。この街の守護者は' + SUBJECT_BY_ID[s].name + 'の力に弱い';
+  }
+}
 const CITY_BY_ID = Object.fromEntries(CITIES.map(c => [c.id, c]));
 // 旧バージョン（アメリカ6都市・全24都市）の都市の並び。保存データの引き継ぎに使う
 const OLD_CITY_ORDER = ['la', 'houston', 'dc', 'phila', 'boston', 'nyc', 'london', 'paris', 'mainz', 'pisa', 'rome', 'athens',
