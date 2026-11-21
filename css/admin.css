@@ -37,3 +37,4 @@ code.uid { user-select: all; word-break: break-all; }
 .pk span { font-weight: 700; color: var(--sub); }
 .pk em { font-style: normal; font-size: 10px; color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 0 4px; }
 .pk.lim { border-color: var(--warn); }
+.btn.mini { padding: 4px 10px; font-size: 12px; margin-left: 6px; vertical-align: middle; }

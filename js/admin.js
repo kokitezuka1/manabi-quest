@@ -97,21 +97,28 @@ function render() {
     root.innerHTML = `${head}<section class="card"><h2>運営として登録されていません</h2>
       <p>このアカウントを運営にするには、Firebase コンソールで次の手順を1回だけ行ってください。</p>
       <ol class="steps">
-        <li>Firestore Database → 「コレクションを開始」</li>
+        <li>${consoleUrl() ? `<a href="${consoleUrl()}" target="_blank" rel="noopener">Firebase コンソールの Firestore Database</a>` : 'Firebase コンソールの Firestore Database'} → 「コレクションを開始」</li>
         <li>コレクション ID：<code>admins</code></li>
-        <li>ドキュメント ID：<code class="uid">${esc(A.user.uid)}</code>（このアカウントの ID）</li>
+        <li>ドキュメント ID：<code class="uid">${esc(A.user.uid)}</code>（このアカウントの ID）<button class="btn ghost mini" id="copyuid">IDをコピー</button></li>
         <li>フィールドを1つ（例：<code>role</code> = <code>owner</code>）入れて保存</li>
         <li>このページを開き直す</li>
       </ol>
       <p class="note">あわせて、リポジトリの <code>firestore.rules</code>（運営の権限が入った新しい版）を Firestore のルールに貼って「公開」してください。</p>
       <p class="note">ログイン中：${esc(A.user.email || '')}</p></section>`;
     bindHead();
+    $('#copyuid').onclick = async () => {
+      try { await navigator.clipboard.writeText(A.user.uid); toast('IDをコピーしました'); } catch (e) { toast('コピーできませんでした。IDを長押しして選んでください'); }
+    };
     return;
   }
   root.innerHTML = head + overviewHtml() + familiesHtml() + eventsHtml();
   bindHead();
   bindFamilies();
   bindEvents();
+}
+// Firestore のデータの画面（プロジェクトは firebase-config.js のもの）
+function consoleUrl() {
+  return typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG ? `https://console.firebase.google.com/project/${FIREBASE_CONFIG.projectId}/firestore/databases/-default-/data` : '';
 }
 function bindHead() { if ($('#logout')) $('#logout').onclick = async () => { if (confirm('ログアウトしますか？')) await Cloud.signOut(); }; }
 
