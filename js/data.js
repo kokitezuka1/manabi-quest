@@ -101,6 +101,12 @@ const CHARACTERS = [
   { id: 'behemoth', el: 'earth',  r: 5, forms: ['rhinoceros-horn', 'elephant', 'elephant-head'], names: ['ライノ', 'エレファント', 'ベヒーモス'] },
   { id: 'pegasus', el: 'light',   r: 5, forms: ['horse-head', 'unicorn', 'pegasus'], names: ['ホワイトホース', 'ユニコーン', 'セイント・ペガサス'] },
   { id: 'sol',     el: 'light',   r: 5, forms: ['sun', 'heraldic-sun', 'sun-priest'], names: ['サンライト', 'ソル', 'アポロン'] },
+  // ---- 限定（運営ページのイベント「ピックアップガチャ」でしか出ない） ----
+  { id: 'frost',   el: 'water',   r: 5, limited: true, forms: ['snowflake-2', 'snowman', 'frostfire'], names: ['スノーフレーク', 'スノーマン', 'フロストクイーン'] },
+  { id: 'pumpkin', el: 'fire',    r: 5, limited: true, forms: ['pumpkin', 'pumpkin-lantern', 'witch-face'], names: ['パンプキン', 'ジャック・オ・ランタン', 'パンプキンウィッチ'] },
+  { id: 'luna',    el: 'flower',  r: 5, limited: true, forms: ['rabbit', 'star-swirl', 'moon'], names: ['ツキウサギ', 'スターラビット', 'ルナ'] },
+  { id: 'mage',    el: 'mystery', r: 4, limited: true, forms: ['magic-hat', 'crystal-ball', 'crystal-wand'], names: ['マジックハット', 'クリスタルボール', 'アークメイジ'] },
+  { id: 'hanabi',  el: 'light',   r: 4, limited: true, forms: ['paper-lantern', 'lantern-flame', 'firework-rocket'], names: ['チョウチン', 'ランタンボーイ', 'ハナビ'] },
 ];
 const CHAR_BY_ID = Object.fromEntries(CHARACTERS.map(c => [c.id, c]));
 // 旧バージョン（絵文字キャラ）の保存データを引き継ぐための対応表

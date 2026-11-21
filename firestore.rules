@@ -4,6 +4,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+    // 運営：admins/{uid} があるアカウント（Firebase コンソールで手で作る）
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
     function famPath(pid) { return /databases/$(database)/documents/families/$(pid); }
     // 子どもの端末の一覧（古い版の childUid にも対応）
     function kids(d) { return d.get('childUids', []); }
@@ -16,7 +18,8 @@ service cloud.firestore {
 
     // 家族（保護者1人と、子どもの端末いくつか）
     match /families/{pid} {
-      allow get: if signedIn() && (request.auth.uid == pid || isKid(resource.data));
+      allow get: if signedIn() && (request.auth.uid == pid || isKid(resource.data) || isAdmin());
+      allow list: if isAdmin();   // 運営ページで家庭の一覧を見る
       allow create: if signedIn() && request.auth.uid == pid && request.resource.data.parentUid == pid;
       allow update: if signedIn() && (
         // 保護者：自分の家族の設定を変える
@@ -35,11 +38,22 @@ service cloud.firestore {
 
       // 子どものゲームの保存データ（子どもの端末だけが書き、保護者は読むだけ）
       match /state/{docId} {
-        allow get: if signedIn() && (request.auth.uid == pid || isChildOf(pid));
+        allow get: if signedIn() && (request.auth.uid == pid || isChildOf(pid) || isAdmin());
         allow write: if signedIn() && isChildOf(pid)
           && request.resource.data.save is string && request.resource.data.save.size() < 900000
           && request.resource.data.rev is int;
       }
+    }
+
+    // 運営かどうか（自分の分だけ確かめられる。作るのは Firebase コンソールから）
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+    }
+
+    // 運営が決めるイベント（ピックアップガチャ）。ログインしていればだれでも読める
+    match /config/{docId} {
+      allow get: if signedIn();
+      allow write: if isAdmin();
     }
 
     // 連携コード（保護者が発行、10分で期限切れ）。番号を知っている人だけが読める（一覧は取れない）

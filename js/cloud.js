@@ -11,6 +11,9 @@
 //                                     （古い版では childUid に1台だけ入っている）
 //   families/{保護者のuid}/state/child { save: ゲームの保存データ(JSON文字列), rev: 更新番号, updatedAt, by: 書いた端末 }
 //   pairCodes/{6桁}                  { parentUid, expiresAt }   … 10分で期限切れ
+//   admins/{運営のuid}               { … }   … 運営ページを使える人。Firebase コンソールで手で作る
+//   config/events                    { list: [{ id, name, start, end, pickup: [仲間id], rate }], updatedAt }
+//                                     … 運営ページで決めるイベント（ピックアップガチャ）。連携中の子どもの端末が読む
 const CODE_MINUTES = 10;
 // ?emulator=1 で開くと、手元の Firebase エミュレーターにつなぐ（開発・テスト用）
 const useEmulator = new URLSearchParams(location.search).has('emulator');
@@ -18,7 +21,7 @@ const config = useEmulator ? { apiKey: 'demo-key', authDomain: 'demo-manabi.fire
   : (typeof FIREBASE_CONFIG !== 'undefined' ? FIREBASE_CONFIG : null);
 
 // 保護者ページとゲームでログイン状態を分ける（同じ端末で保護者がログインしても、子どもの連携が切れないように）
-const role = location.pathname.endsWith('parent.html') ? 'parent' : 'child';
+const role = location.pathname.endsWith('parent.html') ? 'parent' : location.pathname.endsWith('admin.html') ? 'admin' : 'child';
 // SDK（約0.5MB）は連携を使うときだけ読み込む。
 // 保護者ページと連携中の子どもの端末は最初に、まだ連携していない端末は「連携する」を押したときに読み込む
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
@@ -26,7 +29,7 @@ let initializeApp,
   getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
   signInWithCredential, GoogleAuthProvider, signOut,
   getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
-  runTransaction, arrayUnion, arrayRemove, deleteField;
+  runTransaction, arrayUnion, arrayRemove, deleteField, collection, getDocs;
 let auth, db, authReady = Promise.resolve(null), sdkLoading = null;
 
 function loadSdk() {
@@ -37,7 +40,7 @@ function loadSdk() {
     ({ getAuth, connectAuthEmulator, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect,
       signInWithCredential, GoogleAuthProvider, signOut } = b);
     ({ getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp,
-      runTransaction, arrayUnion, arrayRemove, deleteField } = c);
+      runTransaction, arrayUnion, arrayRemove, deleteField, collection, getDocs } = c);
     const app = initializeApp(config, role);
     auth = getAuth(app);
     db = getFirestore(app);
@@ -51,9 +54,10 @@ function loadSdk() {
   return sdkLoading;
 }
 const linkedChild = role === 'child' && typeof S !== 'undefined' && !!(S && S.cloud);
-if (config && (role === 'parent' || linkedChild)) await loadSdk();
+if (config && (role !== 'child' || linkedChild)) await loadSdk();
 
 const famRef = pid => doc(db, 'families', pid);
+const eventsRef = () => doc(db, 'config', 'events');
 const stateRef = pid => doc(db, 'families', pid, 'state', 'child');
 
 // ---------- 子ども（ゲーム）側 ----------
@@ -80,7 +84,7 @@ async function linkChild(code) {
 }
 
 // 連携中の端末で、保護者の設定とほかの端末の記録を受け取る
-async function startChild(pid, { onParent, onReviews, onReset, onGifts, onRemote, onUnlinked }) {
+async function startChild(pid, { onParent, onReviews, onReset, onGifts, onEvents, onRemote, onUnlinked }) {
   stopChild();
   await loadSdk();
   await authReady;
@@ -99,6 +103,8 @@ async function startChild(pid, { onParent, onReviews, onReset, onGifts, onRemote
     const d = s.data();
     onRemote({ save: d.save, rev: d.rev || 0 });
   }, denied));
+  // 運営のイベント（読めなくても遊ぶのには困らないので、エラーは無視する）
+  offs.push(onSnapshot(eventsRef(), s => onEvents(s.exists() ? s.data().list || [] : []), () => {}));
   return true;
 }
 function stopChild() { offs.forEach(f => f()); offs = []; }
@@ -179,6 +185,22 @@ function pruneReviews(uid, ats) {
 }
 function unlinkAll(uid) { return updateDoc(famRef(uid), { childUids: [], childUid: null }); }
 
+// ---------- 運営 ----------
+async function isAdmin(uid) {
+  const s = await getDoc(doc(db, 'admins', uid)).catch(() => null);
+  return !!(s && s.exists());
+}
+// 連携している家庭と、その子どもの記録をすべて読む
+async function listFamilies() {
+  const fams = await getDocs(collection(db, 'families'));
+  return Promise.all(fams.docs.map(async f => {
+    const st = await getDoc(stateRef(f.id)).catch(() => null);
+    return { pid: f.id, fam: f.data(), state: st && st.exists() ? st.data() : null };
+  }));
+}
+function watchEvents(cb) { return onSnapshot(eventsRef(), s => cb(s.exists() ? s.data().list || [] : []), () => cb(null)); }
+function saveEvents(list) { return setDoc(eventsRef(), { list, updatedAt: serverTimestamp() }); }
+
 window.Cloud = {
   enabled: !!config,
   // 子ども
@@ -186,6 +208,8 @@ window.Cloud = {
   // 保護者
   signInParent, testSignIn, onParentAuth, ensureFamily, createPairCode, deletePairCode, watchFamily, watchChildState,
   saveParentSettings, saveReviews, pruneReviews, sendReset, sendGift, pruneGifts, unlinkAll, signOut: () => signOut(auth),
+  // 運営
+  isAdmin, listFamilies, watchEvents, saveEvents,
   CODE_MINUTES,
 };
 window.dispatchEvent(new Event('cloud-ready'));

@@ -1,0 +1,39 @@
+/* ===== 運営ページ（parent.css の上に重ねる） ===== */
+.head .btn { align-self: center; }
+code { font-size: 13px; background: var(--track); border-radius: 4px; padding: 1px 5px; }
+code.uid { user-select: all; word-break: break-all; }
+.alerts { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+.alerts li { padding: 8px 12px; border-radius: 8px; font-size: 14px; background: var(--warn-soft); color: var(--warn); }
+.alerts li.done { background: var(--good-soft); color: var(--good); }
+.fam { border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; padding: 0 12px; }
+.fam h3 { margin: 10px 0 0; }
+.fam summary { cursor: pointer; padding: 12px 0; display: grid; gap: 4px; list-style: none; }
+.fam summary::-webkit-details-marker { display: none; }
+.fname small { color: var(--sub); font-weight: 400; margin-left: 4px; }
+.fsub { font-size: 13px; color: var(--sub); }
+.fchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fchips em { font-style: normal; font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); }
+.fchips em.done { background: var(--good-soft); color: var(--good); }
+.kv { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
+.kv th { text-align: left; color: var(--sub); font-weight: 400; white-space: nowrap; vertical-align: top; padding: 6px 10px 6px 0; width: 5em; }
+.kv td { padding: 6px 0; border-top: 1px solid var(--line); }
+.kv th { border-top: 1px solid var(--line); }
+.kv .bar { height: 6px; border-radius: 3px; background: var(--track); margin-top: 4px; overflow: hidden; }
+.kv .bar i { display: block; height: 100%; background: var(--bar); }
+.evlist { list-style: none; padding: 0; margin: 8px 0; }
+.evlist li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.evlist li > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evlist small { color: var(--sub); font-size: 12px; }
+.evbtns { display: flex; gap: 6px; flex: none; }
+.evbtns .btn { padding: 6px 10px; font-size: 13px; }
+.evst { align-self: flex-start; font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--track); color: var(--sub); }
+.evst.開催中 { background: var(--good-soft); color: var(--good); }
+.evst.予定 { background: var(--accent-soft); color: var(--accent); }
+.evform { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
+.evform > label { display: grid; gap: 4px; font-size: 13px; color: var(--sub); margin: 10px 0; }
+.pickgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; max-height: 360px; overflow-y: auto; padding: 2px; }
+.pk { display: flex; align-items: center; gap: 6px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+.pk input { width: 18px; height: 18px; padding: 0; flex: none; }
+.pk span { font-weight: 700; color: var(--sub); }
+.pk em { font-style: normal; font-size: 10px; color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 0 4px; }
+.pk.lim { border-color: var(--warn); }

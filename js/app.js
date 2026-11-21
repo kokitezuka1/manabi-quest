@@ -908,6 +908,7 @@ SCREENS.gacha = el => {
   const owned = CONTRACT_ORDER.filter(k => S.contracts[k] > 0);
   el.innerHTML = `<div class="gacha">
     <h2 class="g-title">召喚ゲート</h2>
+    ${eventBannerHtml()}
     <div class="machine" id="machine"><div class="dome">${caps}</div><div class="mbody"><div class="slot"></div><div class="handle" id="handle"></div></div></div>
     <div class="pity">${rarityTag(5)}ランク確定まで あと<b>${left}</b>回</div>
     <div class="g-btns">
@@ -956,9 +957,22 @@ async function doContract(kind) {
   await showSummon(res, { known: def.pick });
 }
 
+// 開催中のイベント（ピックアップガチャ）
+function eventBannerHtml() {
+  const ev = activeEvent();
+  if (!ev) return '';
+  const [, em, ed] = ev.end.split('-').map(Number);
+  const pick = ev.pickup.filter(id => CHAR_BY_ID[id]);
+  return `<div class="event-banner"><div class="ev-head"><span class="ev-tag">イベント</span><b>${esc(ev.name)}</b><small>${em}/${ed}まで</small></div>
+    <div class="ev-chars">${pick.map(id => { const c = CHAR_BY_ID[id]; return `<div class="ev-char">
+      ${S.chars[id] ? avatar(id, { size: 52 }) : `<div class="avatar r${c.r}" style="--el:${ELEMENTS[c.el].color};--sz:52px">${icon(c.forms[0])}</div>`}
+      <small>${rarityTag(c.r)}${c.limited ? '<em class="lim">限定</em>' : ''}</small><small>${esc(S.chars[id] ? charName(id) : c.names[0])}</small></div>`; }).join('')}</div>
+    <p class="small">この仲間が出やすくなっているよ！${pick.some(id => CHAR_BY_ID[id].limited) ? '「限定」の仲間は、イベントの間しか出会えない' : ''}</p></div>`;
+}
+
 // 選択契約書：仲間を選ぶ
 async function pickModal(def) {
-  const list = CHARACTERS.filter(c => c.r === def.r);
+  const list = CHARACTERS.filter(c => c.r === def.r && !c.limited);
   const m = openModal(`<h2>📜 ${def.name}</h2><p class="small">仲間にしたい1体を選んでね（持っている仲間なら限界突破）</p>
     <div class="pick-grid">${list.map(c => {
       const o = S.chars[c.id];
@@ -1063,7 +1077,7 @@ SCREENS.zukan = el => {
         return `<button class="z-cell ${co ? '' : 'unknown'} ${ch.id === S.partner ? 'is-partner' : ''}" data-id="${ch.id}" style="--el:${ELEMENTS[ch.el].color}">
           ${co ? avatar(ch.id, { size: 56 }) : `<div class="avatar silhouette" style="--sz:56px">${icon(ch.forms[0])}</div>`}
           <small>${co ? charName(ch.id) : '？？？'}</small>
-          <span class="z-meta">${co ? `Lv.${co.level} ${lbTag(co.lb || 0)}` : rarityTag(ch.r)}</span></button>`;
+          <span class="z-meta">${co ? `Lv.${co.level} ${lbTag(co.lb || 0)}` : rarityTag(ch.r)}${ch.limited ? '<em class="lim">限定</em>' : ''}</span></button>`;
       }).join('')}</div>`;
     }).join('')}`;
   $$('.z-cell', el).forEach(b => b.onclick = () => { Sound.tap(); charDetail(b.dataset.id); });
@@ -1073,7 +1087,7 @@ async function charDetail(id) {
   const c = CHAR_BY_ID[id], o = S.chars[id];
   if (!o) {
     await modal(`<div class="m-av"><div class="avatar silhouette" style="--sz:110px">${icon(c.forms[0])}</div></div>
-      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}</p><p>ガチャや契約書で出会えるかも…！</p>
+      <h2>？？？</h2><p>${rarityTag(c.r)} ${elTag(c.el)}${c.limited ? ' <em class="lim">限定</em>' : ''}</p><p>${c.limited ? 'イベントのピックアップガチャでしか出会えない、限定の仲間だよ' : 'ガチャや契約書で出会えるかも…！'}</p>
       <button class="btn gold wide" data-v="ok">閉じる</button>`, { dismiss: true });
     return;
   }
@@ -1314,7 +1328,7 @@ let lastGifts = [];     // 保護者からの⭐のプレゼント（同じ）
 // クラウドの記録を使うとき、この端末だけのもの（タイマー・効果音の設定・保護者の設定・連携情報）は残す
 function fromCloud(remote) {
   const st = normalize(remote);
-  st.active = S.active; st.settings = S.settings; st.parent = S.parent; st.cloud = S.cloud;
+  st.active = S.active; st.settings = S.settings; st.parent = S.parent; st.cloud = S.cloud; st.events = S.events;
   return st;
 }
 function cloudPayload(st) { const { cloud, ...rest } = st; return rest; }
@@ -1389,6 +1403,14 @@ async function startCloud() {
     onReviews: reviews => { lastReviews = reviews; if (applyReviews(reviews)) afterReviews(); },
     onReset: cmd => { lastReset = cmd; if (applyReset(cmd)) afterReset(); },
     onGifts: gifts => { lastGifts = gifts; if (applyGifts(gifts)) afterReviews(); },
+    onEvents: list => {
+      const next = (list || []).filter(e => e && e.id && e.start && e.end);
+      if (JSON.stringify(next) === JSON.stringify(S.events || [])) return;
+      S.events = next;
+      saveQuiet();
+      if (current.name === 'gacha' && !$('.g-overlay') && !$('.modal-back')) render();
+      else renderNav();
+    },
     onRemote,
     onUnlinked: () => {
       if (!S.cloud) return;

@@ -27,6 +27,7 @@ function defaultState() {
     gifts: [],                 // おうちの人からもらった⭐のプレゼント { id, stars, msg, at }（最近の50件）
     giftNews: [],              // まだ子どもに見せていないプレゼント
     eventQueue: [],            // 承認で起きたできごと（レベルアップ・ステージクリアなど）。ゲームで順に見せる
+    events: [],                // 運営が設定したイベント（クラウドから受け取ったもの）{ id, name, start, end, pickup: [仲間id], rate }
     daily: { date: '', claimed: [] },
     streak: { count: 0, last: '' },
     gacha: { pity: 0, total: 0 },   // pity: 前にSが出てから引いた回数
@@ -236,7 +237,7 @@ const RESET_CITY_MIN = 30;   // リセット後は、Dランク Lv1 で1つの�
 // リセットしたらどうなるか（st: 保存データ）
 function planReset(st) {
   const el = CHAR_BY_ID[st.partner] ? CHAR_BY_ID[st.partner].el : 'fire';
-  const id = CHARACTERS.find(c => c.r === 1 && c.el === el).id;   // 今のパートナーと同じ属性のDランク
+  const id = CHARACTERS.find(c => c.r === 1 && c.el === el && !c.limited).id;   // 今のパートナーと同じ属性のDランク
   const dmg = 10 + RARITY[1].base + RARITY[1].perLv;              // Dランク Lv1 の1分のダメージ
   let i = st.stage.i;
   while (i > 0 && stageInfo(i).hp / dmg > RESET_CITY_MIN) i--;
@@ -472,9 +473,23 @@ function rollRarity(forceMin) {
   if (forceMin && r < forceMin) r = forceMin;
   return r;
 }
+// 通常のガチャ・契約書で出る仲間（限定の仲間は出ない）
 function randomChar(r) {
-  const pool = CHARACTERS.filter(c => c.r === r);
+  const pool = CHARACTERS.filter(c => c.r === r && !c.limited);
   return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+// ---------- イベント（ピックアップガチャ） ----------
+// 今日が期間内（start〜end、両日をふくむ）のイベント
+function activeEvent() {
+  const t = today();
+  return (S.events || []).find(e => e && e.start <= t && t <= e.end && (e.pickup || []).some(id => CHAR_BY_ID[id])) || null;
+}
+// ガチャ1回分の仲間：ピックアップ中のランクが出たら、rate% でピックアップの仲間になる
+function gachaChar(r, ev) {
+  const pick = ev ? ev.pickup.filter(id => CHAR_BY_ID[id] && CHAR_BY_ID[id].r === r) : [];
+  if (pick.length && Math.random() * 100 < (ev.rate ?? 50)) return pick[Math.floor(Math.random() * pick.length)];
+  return randomChar(r);
 }
 
 // 仲間を手に入れる。持っていなければ仲間に、持っていれば限界突破（最大まで突破していたら経験値）
@@ -503,12 +518,13 @@ function pullGacha(kind) {
   else if (kind === 'ten') { if (p.stars < GACHA.cost10) return null; p.stars -= GACHA.cost10; }
 
   const results = [], events = [];
+  const ev = activeEvent();
   for (let k = 0; k < n; k++) {
     const needMin = n === 10 && k === 9 && !results.some(x => x.r >= GACHA.tenMin);
     const r = rollRarity(needMin ? GACHA.tenMin : 0);
     S.gacha.pity = r === 5 ? 0 : S.gacha.pity + 1;
     S.gacha.total++;
-    results.push(gainChar(randomChar(r), events));
+    results.push(gainChar(gachaChar(r, ev), events));
   }
   save();
   return { results, events };
