@@ -8,7 +8,7 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const NEAR = 0.8;   // ここまで進んだら「クリア間近」
 
-const A = { user: undefined, admin: false, families: null, loading: false, events: null, edit: null };
+const A = { user: undefined, admin: false, adminErr: null, families: null, loading: false, events: null, edit: null };
 
 function toast(msg) {
   const t = $('#toast');
@@ -93,6 +93,28 @@ function render() {
     };
     return;
   }
+  if (!A.admin && A.adminErr === 'permission-denied') {
+    // admins を読めない＝Firestore のルールが運営の権限のない古い版
+    root.innerHTML = `${head}<section class="card"><h2>Firestore のルールを新しくしてください</h2>
+      <p>運営の登録を確かめられませんでした。Firestore に公開されているルールが古い（運営の権限が入っていない）ためです。</p>
+      <ol class="steps">
+        <li>下の「ルールをコピー」を押す</li>
+        <li>${consoleUrl() ? `<a href="${consoleUrl('rules')}" target="_blank" rel="noopener">Firebase コンソールの Firestore のルール</a>` : 'Firebase コンソール → Firestore Database → ルール'}を開き、中身をすべて消して貼り付ける</li>
+        <li>「公開」を押し、1分ほど待ってからこのページを開き直す</li>
+      </ol>
+      <div class="save-row"><button class="btn" id="copyrules">ルールをコピー</button></div>
+      <p class="note">ログイン中：${esc(A.user.email || '')}（ID：<code class="uid">${esc(A.user.uid)}</code>）</p></section>`;
+    bindHead();
+    $('#copyrules').onclick = async () => {
+      try {
+        const text = await (await fetch('firestore.rules', { cache: 'no-store' })).text();
+        if (!text.includes('isAdmin')) throw new Error('old');
+        await navigator.clipboard.writeText(text);
+        toast('ルールをコピーしました');
+      } catch (e) { toast('コピーできませんでした'); }
+    };
+    return;
+  }
   if (!A.admin) {
     root.innerHTML = `${head}<section class="card"><h2>運営として登録されていません</h2>
       <p>このアカウントを運営にするには、Firebase コンソールで次の手順を1回だけ行ってください。</p>
@@ -117,8 +139,8 @@ function render() {
   bindEvents();
 }
 // Firestore のデータの画面（プロジェクトは firebase-config.js のもの）
-function consoleUrl() {
-  return typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG ? `https://console.firebase.google.com/project/${FIREBASE_CONFIG.projectId}/firestore/databases/-default-/data` : '';
+function consoleUrl(page = 'data') {   // page: 'data'（データ）か 'rules'（ルール）
+  return typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG ? `https://console.firebase.google.com/project/${FIREBASE_CONFIG.projectId}/firestore/databases/-default-/${page}` : '';
 }
 function bindHead() { if ($('#logout')) $('#logout').onclick = async () => { if (confirm('ログアウトしますか？')) await Cloud.signOut(); }; }
 
@@ -235,7 +257,11 @@ function start() {
   Cloud.onParentAuth(async user => {
     if (offEvents) { offEvents(); offEvents = null; }
     A.user = user; A.admin = false; A.families = null; A.events = null; A.edit = null;
-    if (user) A.admin = await Cloud.isAdmin(user.uid);
+    if (user) {
+      const r = await Cloud.isAdmin(user.uid);
+      A.admin = r === true;
+      A.adminErr = typeof r === 'string' ? r : null;
+    }
     render();
     if (!A.admin) return;
     offEvents = Cloud.watchEvents(list => { A.events = list || []; if (!A.edit) render(); });   // 編集中は書きかけを消さない

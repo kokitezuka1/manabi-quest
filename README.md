@@ -99,7 +99,7 @@ https://kokitezuka1.github.io/manabi-quest/admin.html （運営だけが使え�
 
 ## 更新時の注意
 
-JS/CSS を変えたら、`index.html` と `parent.html` の `?v=17` の数字を上げる（ブラウザの古いキャッシュを使わせないため）。地図データは `index.html` の数字に合わせて読み込まれる。
+JS/CSS を変えたら、`index.html` と `parent.html` の `?v=18` の数字を上げる（ブラウザの古いキャッシュを使わせないため）。地図データは `index.html` の数字に合わせて読み込まれる。
 
 ## クレジット
 

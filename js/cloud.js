@@ -186,9 +186,10 @@ function pruneReviews(uid, ats) {
 function unlinkAll(uid) { return updateDoc(famRef(uid), { childUids: [], childUid: null }); }
 
 // ---------- 運営 ----------
+// 運営かどうか。true / false、確かめられなかったときはエラーの種類（'permission-denied' ならルールが古い）
 async function isAdmin(uid) {
-  const s = await getDoc(doc(db, 'admins', uid)).catch(() => null);
-  return !!(s && s.exists());
+  try { return (await getDoc(doc(db, 'admins', uid))).exists(); }
+  catch (e) { return e.code || 'error'; }
 }
 // 連携している家庭と、その子どもの記録をすべて読む
 async function listFamilies() {
