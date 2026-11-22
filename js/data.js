@@ -398,6 +398,13 @@ const MISSIONS = [
   { id: 'two',  label: '2教科を勉強する', reward: { stars: 15 },  cur: t => t.subjects, max: 2 },
   { id: 'm30',  label: '今日30分勉強する', reward: { stars: 15 },  cur: t => t.minutes,  max: 30 },
 ];
+// 朝勉強（朝9時までに、漢字・計算をやるとボーナス）。ふだんのミッションとは別枠
+const MORNING_END_H = 9, MORNING_START_H = 4, MORNING_MIN = 5;
+const MORNING_TOPICS = [
+  { id: 'kanji',  subject: 'kokugo', icon: '✍️', name: '漢字', reward: { stars: 20 } },
+  { id: 'keisan', subject: 'sansu',  icon: '🧮', name: '計算', reward: { stars: 20 } },
+];
+const MORNING_BOTH = { tickets: 1, stars: 20 };
 const ALL_MISSION_BONUS = { stars: 20 };
 
 const CHEERS = [

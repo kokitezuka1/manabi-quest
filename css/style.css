@@ -717,3 +717,6 @@ em.lim { font-style: normal; font-size: 10px; font-weight: 800; color: #1a1206; 
 body.sw-shake { animation:swShake .15s infinite; }
 @keyframes swShake { 25%{transform:translate(3px,-2px)} 75%{transform:translate(-3px,2px)} }
 .sw-final { border:2px solid var(--gold2); background:linear-gradient(135deg,rgba(247,169,40,.12),rgba(179,51,31,.15)); }
+.chip.topic { display:block; width:100%; margin:8px 0; padding:10px 12px; background:rgba(255,255,255,.08); color:inherit; border:2px dashed var(--gold2); white-space:normal; text-align:left; font-size:15px; }
+.chip.topic.sel { background:linear-gradient(var(--gold1),var(--gold2)); color:#3a2200; border-style:solid; }
+.chip.topic small { display:block; font-weight:600; opacity:.8; }

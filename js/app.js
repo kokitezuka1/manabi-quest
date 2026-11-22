@@ -474,6 +474,16 @@ function promiseHtml(t) {
   </div>`;
 }
 
+function morningHtml() {
+  const rows = morningList().map(m => {
+    const rw = m.reward.tickets ? `🎫×${m.reward.tickets}＋⭐×${m.reward.stars}` : `⭐×${m.reward.stars}`;
+    const action = m.claimed ? '<span class="claimed">✅</span>'
+      : m.done ? `<button class="btn mini gold wiggle" data-mclaim="${m.id}">受け取る</button>` : `<span class="rw">${rw}</span>`;
+    return `<div class="mission ${m.done ? 'done' : ''} ${m.bonus ? 'bonus' : ''}"><div class="m-text">${m.label}<div class="bar"><i style="width:${pct(m.cur, m.max)}"></i></div></div>${action}</div>`;
+  }).join('');
+  return `<div class="card" id="morning"><h3>📚 朝勉強（${MORNING_END_H}時まで）いいことある</h3>${rows}
+    <p class="small muted">勉強スタートで「国語→漢字」「算数→計算」を選んでやろう。${MORNING_MIN}分でOK！</p></div>`;
+}
 function missionsHtml() {
   return missionList().map(m => {
     const rw = m.reward.tickets ? `🎫×${m.reward.tickets}` : `⭐×${m.reward.stars}`;
@@ -503,6 +513,7 @@ SCREENS.home = el => {
     ${swHomeCardHtml()}
     ${quizHomeCardHtml()}
     ${promiseHtml(t)}
+    ${morningHtml()}
     <div class="card"><h3>🎯 今日のミッション</h3><div id="missions">${missionsHtml()}</div></div>`;
   $('#start').onclick = () => { Sound.tap(); go('setup'); };
   $$('.pr-chip', el).forEach(b => b.onclick = () => { Sound.tap(); go('setup', { subject: b.dataset.s }); });
@@ -519,6 +530,18 @@ SCREENS.home = el => {
     if (showingNews || $('.modal-back') || current.name !== 'home') return;
     showingNews = true; await runQueuedEvents(); showingNews = false; render();
   }, 300);
+  const bindMorning = () => $('#morning').onclick = e => {
+    const b = e.target.closest('[data-mclaim]');
+    if (!b) return;
+    const rw = claimMorning(b.dataset.mclaim);
+    if (!rw) return;
+    Sound.coin(); FX.burstAt(b, 30, true);
+    floatText(b, rw.tickets ? `🎫+${rw.tickets}` : `⭐+${rw.stars}`, 'gold');
+    $('#morning').outerHTML = morningHtml();
+    bindMorning();
+    renderTopbar(); renderNav();
+  };
+  bindMorning();
   $('#missions').onclick = e => {
     const b = e.target.closest('[data-claim]');
     if (!b) return;
@@ -535,6 +558,7 @@ SCREENS.home = el => {
 SCREENS.setup = (el, params) => {
   let subj = params.subject || S.settings.lastSubject || SUBJECTS[0].id;
   let goal = S.settings.lastGoal || 15;
+  let topic = params.topic || null;
   const st = currentStage();
   const pel = CHAR_BY_ID[S.partner].el;
   const draw = () => {
@@ -548,6 +572,7 @@ SCREENS.setup = (el, params) => {
         ${isPriority(s.id) ? `<em class="tag prio">おすすめ ⭐×${PRIORITY_STAR_RATE}</em>` : ''}
         ${s.el === st.enemy.weak ? '<em class="tag hot">この街の弱点 ×2</em>' : ''}
         ${s.el === pel ? '<em class="tag">仲間が育つ</em>' : ''}</button>`).join('')}</div>
+      ${MORNING_TOPICS.filter(m => m.subject === subj).map(m => `<button class="chip topic ${topic === m.id ? 'sel' : ''}" data-t="${m.id}">📚 ${m.icon} ${m.name}をやる ${topic === m.id ? '✓' : ''}<small>朝${MORNING_END_H}時までに${MORNING_MIN}分で ⭐+${m.reward.stars}</small></button>`).join('')}
       <p class="muted small">「その他」は宿題・読書・プリント・ドリルなど</p>
       <h2>何分がんばる？</h2>
       <div class="goal-row">${GOAL_OPTIONS.map(g => `<button class="goal ${g === goal ? 'sel' : ''}" data-g="${g}">${g}<small>分</small></button>`).join('')}</div>
@@ -557,9 +582,10 @@ SCREENS.setup = (el, params) => {
       </div>
       <button class="btn big gold pulse" id="go">▶ スタート！</button></div>`;
     $('#back').onclick = () => { Sound.tap(); go('home'); };
-    $$('.subj', el).forEach(b => b.onclick = () => { Sound.tap(); subj = b.dataset.s; draw(); });
+    $$('.subj', el).forEach(b => b.onclick = () => { Sound.tap(); subj = b.dataset.s; topic = null; draw(); });
+    $$('.topic', el).forEach(b => b.onclick = () => { Sound.tap(); topic = topic === b.dataset.t ? null : b.dataset.t; draw(); });
     $$('.goal', el).forEach(b => b.onclick = () => { Sound.tap(); goal = +b.dataset.g; draw(); });
-    $('#go').onclick = () => { Sound.coin(); startActive(subj, goal); go('timer'); };
+    $('#go').onclick = () => { Sound.coin(); startActive(subj, goal, topic); go('timer'); };
   };
   draw();
 };
@@ -684,7 +710,7 @@ async function finishFlow(skipConfirm) {
       <div class="m-btns"><button class="btn ghost" data-v="cont">まだ続ける</button><button class="btn gold" data-v="fin">終わる</button></div>`);
     if (v !== 'fin' || !S.active) return;
   }
-  const res = finishSession(a.subject, min, a.goal, activeElapsedSecAt(a) >= a.goal * 60);
+  const res = finishSession(a.subject, min, a.goal, activeElapsedSecAt(a) >= a.goal * 60, null, a.topic || null);
   go('result', res);
 }
 function activeElapsedSecAt(a) {

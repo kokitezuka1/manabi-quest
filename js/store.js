@@ -304,7 +304,7 @@ function touchStreak(events) {
 
 // ---------- 勉強終了 ----------
 // course: 講座をチェックしたときは講座の id（⭐は講座の⭐、時間は勉強時間として数える）
-function finishSession(subject, minutes, goal, goalMet, course = null) {
+function finishSession(subject, minutes, goal, goalMet, course = null, topic = null) {
   const events = [];
   const p = S.player;
   const xpBefore = { level: p.level, xp: p.xp };
@@ -321,7 +321,7 @@ function finishSession(subject, minutes, goal, goalMet, course = null) {
   const before = todayStats().minutes;
   // at は承認のときの目印にもなるので、ほかの記録と重ならないようにする
   const at = Math.max(Date.now(), ...S.sessions.slice(-5).map(s => s.at + 1));
-  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at, stars, prio, review: 'pending', ...(course ? { course } : {}) });
+  S.sessions.push({ subject, minutes, goal, goalMet, date: today(), at, stars, prio, review: 'pending', ...(course ? { course } : {}), ...(topic ? { topic } : {}) });
   const target = targetFor(today());
   if (target && !S.daily.targetPaid && before < target && before + minutes >= target) {
     S.daily.targetPaid = true;   // 却下で時間が減ったあとに、もう一度もらえないように
@@ -577,7 +577,35 @@ function missionList() {
     cur: list.filter(m => m.claimed).length, max: MISSIONS.length, done: allDone, claimed: S.daily.claimed.includes('all'), bonus: true });
   return list;
 }
-function claimableCount() { return missionList().filter(m => m.done && !m.claimed).length; }
+// 朝勉強：朝9時までに、5分以上やった種目
+function isMorningSession(s) {
+  const start = new Date(s.at - sessionMin(s) * 60000), h = start.getHours() + start.getMinutes() / 60;
+  return h >= MORNING_START_H && h < MORNING_END_H;
+}
+function morningList() {
+  ensureDaily();
+  const t = today();
+  const ss = S.sessions.filter(s => s.date === t && s.topic && s.review !== 'ng' && isMorningSession(s));
+  const list = MORNING_TOPICS.map(m => {
+    const min = ss.filter(s => s.topic === m.id).reduce((a, s) => a + sessionMin(s), 0);
+    return { id: 'am-' + m.id, label: `${m.icon} 朝勉強：${m.name}`, reward: m.reward, cur: Math.min(min, MORNING_MIN), max: MORNING_MIN,
+      done: min >= MORNING_MIN, claimed: S.daily.claimed.includes('am-' + m.id) };
+  });
+  const both = list.every(m => m.done);
+  list.push({ id: 'am-both', label: '📚 漢字も計算も朝にやった！いいことある', reward: MORNING_BOTH, cur: list.filter(m => m.done).length, max: list.length,
+    done: both, claimed: S.daily.claimed.includes('am-both'), bonus: true });
+  return list;
+}
+function claimMorning(id) {
+  const m = morningList().find(x => x.id === id);
+  if (!m || !m.done || m.claimed) return null;
+  S.daily.claimed.push(id);
+  S.player.stars += m.reward.stars || 0;
+  S.player.tickets += m.reward.tickets || 0;
+  save();
+  return m.reward;
+}
+function claimableCount() { return missionList().filter(m => m.done && !m.claimed).length + morningList().filter(m => m.done && !m.claimed).length; }
 function claimMission(id) {
   const m = missionList().find(x => x.id === id);
   if (!m || !m.done || m.claimed) return null;
@@ -589,8 +617,8 @@ function claimMission(id) {
 }
 
 // ---------- タイマー ----------
-function startActive(subject, goal) {
-  S.active = { subject, goal, startedAt: Date.now(), pausedAt: null, pausedTotal: 0, goalNotified: false };
+function startActive(subject, goal, topic = null) {
+  S.active = { subject, goal, topic, startedAt: Date.now(), pausedAt: null, pausedTotal: 0, goalNotified: false };
   S.settings.lastGoal = goal;
   S.settings.lastSubject = subject;
   save();
