@@ -6,7 +6,7 @@
 
 const SW = (() => {
   const ID = 'shakai-week';
-  const START = '2026-11-21', END = '2026-11-27';
+  const START = '2026-11-22', END = '2026-11-28';
   const N = SW_CARDS.length;
   const NEED_DAYS = 2;             // 別々の日に2回「覚えてた」と答えたら「覚えた」
   const ROUND = 10;                // 1回のカード数
@@ -15,17 +15,17 @@ const SW = (() => {
 
   // 報酬：n=覚えた枚数、need=ふだんのクエストで勉強した時間（分）
   const MILESTONES = [
-    { id: 'm1', n: Math.round(N * 0.1), need: 10, stars: 50 },
-    { id: 'm2', n: Math.round(N * 0.2), need: 25, stars: 100 },
-    { id: 'm3', n: Math.round(N * 0.33), need: 45, stars: 100, tickets: 1 },
-    { id: 'half', n: HALF, need: 70, half: true, char: 'nihon', contracts: ['a'] },
-    { id: 'm5', n: Math.round(N * 0.7), need: 110, stars: 300, contracts: ['s'] },
-    { id: 'all', n: N, need: 150, tickets: 3, contracts: ['ssel'] },
+    { id: 'm1', n: Math.round(N * 0.1), need: 5, stars: 50 },
+    { id: 'm2', n: Math.round(N * 0.2), need: 12, stars: 100 },
+    { id: 'm3', n: Math.round(N * 0.33), need: 22, stars: 100, tickets: 1 },
+    { id: 'half', n: HALF, need: 35, half: true, char: 'nihon', contracts: ['a'] },
+    { id: 'm5', n: Math.round(N * 0.7), need: 55, stars: 300, contracts: ['s'] },
+    { id: 'all', n: N, need: 75, tickets: 3, contracts: ['ssel'] },
   ];
 
-  const blank = () => ({ intro: false, cards: {}, sec: 0, min: 0, claimed: [] });
-  const st = () => S.sw || (S.sw = blank());
-  const dbg = () => /[?&]sw=1/.test(location.search);
+  const blank = () => ({ intro: false, cards: {}, sec: 0, min: 0, claimed: [], fin: { best: 0, tries: 0, claimed: [] } });
+  const st = () => { const z = S.sw || (S.sw = blank()); if (!z.fin) z.fin = { best: 0, tries: 0, claimed: [] }; return z; };
+  const dbg = () => /[?&]sw=(1|final)/.test(location.search);
   const inRange = d => d >= START && d <= END;
   const active = () => dbg() || inRange(today());
   const daysLeft = () => {
@@ -126,8 +126,50 @@ const SW = (() => {
     save();
     return { m, got, events };
   }
-  const claimableCount = () => MILESTONES.filter(m => milestoneState(m).claimable).length;
+  // ラストバトル：最終日に、全カードからランダムに出して4択で確かめる（1日2回まで、ベストで報酬）
+  const FIN_N = 30, FIN_TRIES = 2;
+  const FIN_TIERS = [
+    { id: 'f1', score: 18, need: 20, stars: 300, contracts: ['a'], label: '合格ライン' },
+    { id: 'f2', score: 24, need: 35, stars: 500, contracts: ['s'], label: 'すごい！' },
+    { id: 'f3', score: 28, need: 50, tickets: 3, stars: 500, contracts: ['ssel'], label: '完全制覇' },
+  ];
+  const isFinalDay = () => /[?&]sw=final/.test(location.search) || today() === END;
+  const finalOpen = () => active() && isFinalDay();
+  const finalTriesLeft = () => Math.max(0, FIN_TRIES - st().fin.tries);
+  function finalQuestions() {
+    const ids = shuffle(SW_CARDS.map((_, i) => i)).slice(0, FIN_N);
+    return ids.map(id => {
+      const [deck, q, a] = SW_CARDS[id];
+      const same = shuffle(SW_CARDS.filter((c, i) => i !== id && c[2] !== a && c[0] === deck).map(c => c[2]));
+      const other = shuffle(SW_CARDS.filter((c, i) => i !== id && c[2] !== a && c[0] !== deck).map(c => c[2]));
+      const wrong = [...new Set([...same, ...other])].slice(0, 3);
+      const choices = shuffle([a, ...wrong]);
+      return { id, q, choices, ans: choices.indexOf(a) };
+    });
+  }
+  function finalResult(score) {
+    const f = st().fin;
+    f.tries++; f.best = Math.max(f.best, score);
+    save();
+  }
+  function finTierState(t) {
+    const f = st().fin, qm = questMin();
+    const claimed = f.claimed.includes(t.id), reached = f.best >= t.score, gateOk = qm >= t.need;
+    return { claimed, reached, gateOk, claimable: !claimed && reached && gateOk, lack: Math.max(0, t.need - qm) };
+  }
+  function finClaim(id) {
+    const t = FIN_TIERS.find(x => x.id === id);
+    if (!t || !finTierState(t).claimable) return null;
+    st().fin.claimed.push(id);
+    S.player.stars += t.stars || 0;
+    S.player.tickets += t.tickets || 0;
+    (t.contracts || []).forEach(addContract);
+    save();
+    return { m: t };
+  }
+  const claimableCount = () => MILESTONES.filter(m => milestoneState(m).claimable).length + FIN_TIERS.filter(t => finTierState(t).claimable).length;
 
   return { ID, START, END, N, HALF, ROUND, NEED_DAYS, MILESTONES, blank, active, daysLeft, card, isMastered, masteredCount, deckStat,
-    questMin, eventMin, plan, answer, addSeconds, flushTime, milestoneState, claim, claimableCount };
+    questMin, eventMin, plan, answer, addSeconds, flushTime, milestoneState, claim, claimableCount,
+    FIN_N, FIN_TRIES, FIN_TIERS, isFinalDay, finalOpen, finalTriesLeft, finalQuestions, finalResult, finTierState, finClaim };
 })();

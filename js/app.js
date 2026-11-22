@@ -20,7 +20,7 @@ function go(name, params = {}) {
 
 function render() {
   ensureDaily();
-  const full = ['onboard', 'timer', 'result', 'setup', 'quiz', 'evcards'].includes(current.name);
+  const full = ['onboard', 'timer', 'result', 'setup', 'quiz', 'evcards', 'evfinal'].includes(current.name);
   document.body.classList.toggle('fullmode', full);
   renderTopbar();
   renderNav();

@@ -716,3 +716,4 @@ em.lim { font-style: normal; font-size: 10px; font-weight: 800; color: #1a1206; 
 .sw-btns { display:grid; gap:8px; margin-top:12px; }
 body.sw-shake { animation:swShake .15s infinite; }
 @keyframes swShake { 25%{transform:translate(3px,-2px)} 75%{transform:translate(-3px,2px)} }
+.sw-final { border:2px solid var(--gold2); background:linear-gradient(135deg,rgba(247,169,40,.12),rgba(179,51,31,.15)); }

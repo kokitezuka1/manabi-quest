@@ -17,6 +17,16 @@ function swRewardText(m) {
   return t.join(' ＋ ');
 }
 
+function swFinalCardHtml() {
+  const open = SW.finalOpen(), f = S.sw.fin;
+  return `<div class="card sw-final"><h3>👑 ラストバトル（${SW.END.slice(5).replace('-', '/')}の最終日だけ）</h3>
+    <p class="small">全${SW.N}枚からランダムに${SW.FIN_N}問。ほんとうに覚えたか、4択でたしかめよう！（1日${SW.FIN_TRIES}回まで・いちばん良い点で報酬）</p>
+    ${SW.FIN_TIERS.map(t => { const ms = SW.finTierState(t);
+      return `<div class="sw-ms ${ms.claimed ? 'done' : ''}"><div class="sw-ms-main"><b>${t.score}問正解 ${t.label}</b><span>${esc(swRewardText(t))}</span><small class="muted">ふだんのクエスト${t.need}分</small></div>
+      ${ms.claimable ? `<button class="btn mini gold" data-claim="${t.id}">受け取る</button>` : `<small class="sw-gate">${ms.claimed ? '受け取りずみ' : !ms.reached ? (f.tries ? `ベスト${f.best}問` : 'まだ') : `あと${ms.lack}分`}</small>`}</div>`; }).join('')}
+    ${open ? `<button class="btn big gold wide" id="sw-final" ${SW.finalTriesLeft() ? '' : 'disabled'}>${SW.finalTriesLeft() ? `ラストバトルへ！（のこり${SW.finalTriesLeft()}回）` : '今日はおしまい'}</button>` : `<p class="small muted">${SW.END.slice(5).replace('-', '/')}になったら開くよ。それまでにカードを覚えておこう！</p>`}</div>`;
+}
+
 function swHomeCardHtml() {
   if (!SW.active()) return '';
   const n = SW.masteredCount(), claim = SW.claimableCount();
@@ -71,7 +81,7 @@ async function showSwIntro() {
       <div class="sw-gaia">${icon(c.forms[1])}</div>
       <p class="sw-line small">列島の主ガイア「社会の力が足りぬ…<br>きみの力で、日本の記憶を取りもどしてくれ！」</p>
       <p class="sw-goal">${SW.START.slice(5).replace('-', '/')}〜${SW.END.slice(5).replace('-', '/')}の7日間<br>目標：<b>${SW.HALF}まい（半分）</b>を覚えよう</p>
-      <p class="sw-note small">※ふだんのクエストも進めると、報酬がもらえるよ</p>
+      <p class="sw-note small">最終日には、全カードから出る<b>ラストバトル</b>！<br>※ふだんのクエストも進めると、報酬がもらえるよ</p>
       <div class="sw-btns"><button class="btn big gold" id="sw-in">旅立つ！</button><button class="btn" id="sw-later">あとで</button></div></div>`;
   Sound.win && Sound.win();
   const choice = await new Promise(res => {
@@ -107,6 +117,7 @@ SCREENS.event = (el) => {
           <small class="muted">ふだんのクエスト${m.need}分</small></div>
         ${ms.claimable ? `<button class="btn mini gold" data-claim="${m.id}">受け取る</button>` : `<small class="sw-gate">${swGateText(m, ms)}</small>`}</div>`;
     }).join('')}</div>
+    ${swFinalCardHtml()}
     <div class="card"><h3>🗺️ ステージ（14のしな）</h3><div class="sw-decks">${SW_DECKS.map((d, i) => {
       const s = SW.deckStat(i);
       return `<div class="sw-deck ${s.done === s.total ? 'clear' : ''}"><span>${esc(d)}</span><b>${s.done}/${s.total}</b><i style="width:${pct(s.done, s.total)}"></i></div>`;
@@ -114,8 +125,9 @@ SCREENS.event = (el) => {
     <button class="btn wide" id="sw-home">‹ ホームへ</button></div>`;
   $('#sw-start').onclick = () => { Sound.tap(); go('evcards'); };
   $('#sw-home').onclick = () => { Sound.tap(); go('home'); };
+  if ($('#sw-final')) $('#sw-final').onclick = () => { Sound.tap(); go('evfinal'); };
   $$('[data-claim]', el).forEach(b => b.onclick = async () => {
-    const r = SW.claim(b.dataset.claim);
+    const r = b.dataset.claim.startsWith('f') && b.dataset.claim !== 'half' ? SW.finClaim(b.dataset.claim) : SW.claim(b.dataset.claim);
     if (!r) return;
     Sound.levelup(); FX.confetti(r.m.half ? 220 : 120);
     let extra = '';
@@ -201,4 +213,49 @@ SCREENS.evcards = (el) => {
   };
 
   next();
+};
+
+SCREENS.evfinal = (el) => {
+  if (!SW.finalOpen() || !SW.finalTriesLeft()) { go('event'); return; }
+  const qs = SW.finalQuestions();
+  let i = 0, score = 0, t0 = Date.now();
+  const miss = [];
+  const ask = () => {
+    const q = qs[i];
+    t0 = Date.now();
+    el.innerHTML = `<div class="sw-wrap cards">
+      <div class="quiz-prog"><i style="width:${pct(i, qs.length)}"></i></div>
+      <p class="muted small quiz-no">👑 ラストバトル ${i + 1} / ${qs.length} ・ せいかい ${score}</p>
+      <div class="card quiz-q">${esc(q.q)}</div>
+      <div class="quiz-choices">${q.choices.map((c, k) => `<button class="quiz-choice" data-k="${k}">${esc(c)}</button>`).join('')}</div><div id="sw-fb"></div></div>`;
+    let done = false;
+    $$('.quiz-choice', el).forEach(b => b.onclick = () => {
+      if (done) return; done = true;
+      SW.addSeconds((Date.now() - t0) / 1000);
+      const k = +b.dataset.k, ok = k === q.ans;
+      if (ok) score++; else miss.push(q);
+      $$('.quiz-choice', el).forEach(x => { x.disabled = true; if (+x.dataset.k === q.ans) x.classList.add('right'); });
+      if (!ok) b.classList.add('wrong');
+      ok ? Sound.coin() : Sound.tap();
+      const last = i + 1 >= qs.length;
+      $('#sw-fb').innerHTML = `<button class="btn ${ok ? 'gold' : ''} wide" id="sw-nx">${last ? 'けっかを見る' : 'つぎへ'}</button>`;
+      $('#sw-nx').onclick = () => { Sound.tap(); i++; last ? finish() : ask(); };
+    });
+  };
+  const finish = async () => {
+    SW.finalResult(score);
+    const r = SW.flushTime();
+    const best = S.sw.fin.best;
+    const tier = SW.FIN_TIERS.filter(t => score >= t.score).pop();
+    Sound.levelup(); FX.confetti(tier ? 200 : 60);
+    el.innerHTML = `<div class="sw-wrap cards"><h2 class="page-title">👑 ラストバトル けっか</h2>
+      <div class="card sw-result"><p><b class="sw-num">${score}</b> / ${qs.length} 問 せいかい！</p>
+        <p class="small">${tier ? `「${tier.label}」クリア！報酬はイベント画面で受け取れるよ（ふだんのクエストの勉強時間も条件）` : `${SW.FIN_TIERS[0].score}問で報酬。もう少し！`}　ベスト：${best}問</p>
+        ${miss.length ? `<p class="small">まちがえたカード：</p><ul class="sw-new">${miss.map(q => `<li>${esc(q.q)} → ${esc(q.choices[q.ans])}</li>`).join('')}</ul>` : '<p>ぜんぶ正解！完ぺき！</p>'}
+        ${r ? `<p class="small">⏱ ${r.minutes}分を社会の勉強時間に記録したよ</p>` : ''}</div>
+      <button class="btn big gold wide" id="sw-back">イベントへもどる</button></div>`;
+    $('#sw-back').onclick = () => { Sound.tap(); go('event'); };
+    if (r && r.events.length) { showingNews = true; await runEvents(r.events); showingNews = false; }
+  };
+  ask();
 };
