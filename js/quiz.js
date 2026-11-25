@@ -21,6 +21,8 @@ const Quiz = (() => {
   const LOG_MAX = 400, ITEM_MAX = 300;
   const DAILY_REWARD_SETS = 3;     // ごほうび（経験値）が入るのは1日3セットまで
   const XP_PER_OK = 8;
+  const MISS_INTERVALS = [1, 3, 7];   // まちがえた問題を、次に出すまでの日数（3回続けて正解したら卒業）
+  const MISS_MAX = 60;
   const INTERVALS = [0, 1, 3, 7, 14];   // 正解が続いたタグを、次に出すまでの日数（0 = すぐ）
 
   // ---------- 問題を作る ----------
@@ -209,8 +211,10 @@ const Quiz = (() => {
   }
 
   // ---------- その子の記録 ----------
-  function blankQuiz() { return { v: 1, tags: {}, items: {}, log: [], daily: { date: '', sets: 0 } }; }
-  function qs(S) { if (!S.quiz) S.quiz = blankQuiz(); return S.quiz; }
+  function blankQuiz() { return { v: 1, tags: {}, items: {}, miss: {}, log: [], daily: { date: '', sets: 0 } }; }
+  function qs(S) { if (!S.quiz) S.quiz = blankQuiz(); if (!S.quiz.miss) S.quiz.miss = {}; return S.quiz; }
+  const packQ = q => ({ id: q.id, tag: q.tag, d: q.d, q: q.q, ans: q.choices[q.a], wrongs: q.choices.filter((_, i) => i !== q.a), x: q.x || '' });
+  const unpackQ = m => { const t = mcText(m.ans, m.wrongs); return { id: m.id, tag: m.tag, d: m.d, q: m.q, ...t, x: m.x || '' }; };
 
   // 答えを1つ記録する。タグの難しさ・次に出す時期もここで決める
   function record(S, q, ok, ms, at = Date.now()) {
@@ -231,6 +235,16 @@ const Quiz = (() => {
       const ks = Object.keys(z.items);
       if (ks.length > ITEM_MAX) ks.sort((a, b) => z.items[a].day.localeCompare(z.items[b].day)).slice(0, ks.length - ITEM_MAX).forEach(k => delete z.items[k]);
     }
+    // まちがえた問題はノートに入れ、1日後→3日後→7日後にもう一度出す。3回続けて正解したら卒業
+    const mm = z.miss[q.id];
+    if (!ok) z.miss[q.id] = { ...packQ(q), box: 0, day, due: addDays(day, MISS_INTERVALS[0]), n: (mm ? mm.n : 0) + 1 };
+    else if (mm && mm.day !== day) {
+      mm.box++;
+      if (mm.box >= MISS_INTERVALS.length) delete z.miss[q.id];
+      else { mm.due = addDays(day, MISS_INTERVALS[mm.box]); mm.day = day; }
+    }
+    const mk = Object.keys(z.miss);
+    if (mk.length > MISS_MAX) mk.sort((a, b) => z.miss[a].day.localeCompare(z.miss[b].day)).slice(0, mk.length - MISS_MAX).forEach(k => delete z.miss[k]);
     z.log.push({ t: at, id: q.id, tag: q.tag, d: q.d, ok: ok ? 1 : 0, ms });
     if (z.log.length > LOG_MAX) z.log.splice(0, z.log.length - LOG_MAX);
     return { lvChange, lv: t.lv };
@@ -247,6 +261,10 @@ const Quiz = (() => {
     for (const k of new Set([...Object.keys(A.items), ...Object.keys(B.items)])) {
       const x = A.items[k], y = B.items[k];
       out.items[k] = !x ? y : !y ? x : (y.day >= x.day ? y : x);
+    }
+    for (const k of new Set([...Object.keys(A.miss || {}), ...Object.keys(B.miss || {})])) {
+      const x = (A.miss || {})[k], y = (B.miss || {})[k];
+      out.miss[k] = !x ? y : !y ? x : (y.day >= x.day ? y : x);
     }
     const seen = new Set(), logs = [];
     for (const e of [...A.log, ...B.log]) { const key = e.t + '|' + e.id; if (!seen.has(key)) { seen.add(key); logs.push(e); } }
@@ -368,6 +386,11 @@ const Quiz = (() => {
     n = n || setSize(S);
     const ws = weights(S, subject, day);
     const used = {}, avoid = new Set(), out = [];
+    const missQs = Object.values(z.miss).filter(m => m.due <= day && TAGS[m.tag] && (!subject || TAGS[m.tag].subj === subject))
+      .sort((a, b) => a.due.localeCompare(b.due)).slice(0, Math.max(1, Math.min(3, Math.floor(n * 0.4))))
+      .map(m => ({ ...unpackQ(m), why: ['まちがえた問題'], miss: true }));
+    missQs.forEach(q => avoid.add(q.id));
+    n = Math.max(2, n - missQs.length);
     const strongTags = Object.entries(z.tags).filter(([tag, t]) => t.n >= 4 && smooth(t.ok, t.n) >= 0.75 && (!subject || (TAGS[tag] || {}).subj === subject)).map(([tag]) => tag);
     const take = tag => {
       const q = candidateFor(S, tag, avoid, day);
@@ -387,7 +410,9 @@ const Quiz = (() => {
       if (!take(chosen.tag)) { ws.splice(ws.indexOf(ws.find(w => w.tag === chosen.tag)), 1); if (!ws.length) break; }
     }
     if (n >= 6 && strongTags.length && out.length < n) take(pick(strongTags));
-    return out.map(q => ({ ...q, why: rw[q.tag] || [] }));
+    const res = out.map(q => ({ ...q, why: rw[q.tag] || [] }));
+    for (const q of shuffle(missQs)) res.splice(res.length ? ri(1, res.length) : 0, 0, q);   // 最初の1問は得意なものから
+    return res;
   }
 
   // 今日の重点（ドリルを始める前に見せる）
@@ -408,5 +433,7 @@ const Quiz = (() => {
     return { okN, xp, paid, left: Math.max(0, DAILY_REWARD_SETS - z.daily.sets) };
   }
 
-  return { rng, TAGS, GEN, BANK, BANK_BY_ID, blankQuiz, record, merge, profile, advice, plan, focus, setSize, weights, rewardFor, DAILY_REWARD_SETS };
+  const missCount = (S, subject = null, day = todayKey()) => Object.values(qs(S).miss).filter(m => m.due <= day && TAGS[m.tag] && (!subject || TAGS[m.tag].subj === subject)).length;
+  const missTotal = S => Object.keys(qs(S).miss).length;
+  return { missCount, missTotal, rng, TAGS, GEN, BANK, BANK_BY_ID, blankQuiz, record, merge, profile, advice, plan, focus, setSize, weights, rewardFor, DAILY_REWARD_SETS };
 })();

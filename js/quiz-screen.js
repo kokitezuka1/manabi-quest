@@ -32,7 +32,8 @@ SCREENS.quiz = (el, params) => {
       <h2 class="page-title">🧩 きみ専用ドリル</h2>
       <div class="card"><h3>きょうのねらい</h3>
         ${f.map(x => `<div class="quiz-focus"><b>${esc(x.name)}</b><span class="muted small">${esc(quizReasonText(x.reasons))}</span></div>`).join('')}
-        <p class="small muted">きみの答えかたを見て、${n}問をえらんだよ。</p></div>
+        <p class="small muted">きみの答えかたを見て、${n}問をえらんだよ。</p>
+        ${Quiz.missCount(S, subject) ? `<p class="small">🔁 まちがえた問題の復習が <b>${Quiz.missCount(S, subject)}問</b> まざるよ</p>` : ''}</div>
       <div class="card"><h3>教科</h3><div class="quiz-chips">
         <button class="quiz-chip ${!subject ? 'on' : ''}" data-s="">おまかせ</button>
         ${quizSubjects().map(s => `<button class="quiz-chip ${subject === s.id ? 'on' : ''}" data-s="${s.id}">${s.icon} ${s.name}</button>`).join('')}
@@ -56,7 +57,7 @@ SCREENS.quiz = (el, params) => {
     const t0 = Date.now();
     el.innerHTML = `<div class="quiz-wrap">
       <div class="quiz-prog"><i style="width:${pct(i, qs.length)}"></i></div>
-      <p class="muted small quiz-no">${i + 1} / ${qs.length} ・ ${esc(Quiz.TAGS[q.tag].name)}</p>
+      <p class="muted small quiz-no">${i + 1} / ${qs.length} ・ ${esc(Quiz.TAGS[q.tag].name)}${q.retry ? ' ・ 🔄 もう一度！' : q.miss ? ' ・ 🔁 まちがえた問題' : ''}</p>
       <div class="card quiz-q">${esc(q.q)}</div>
       <div class="quiz-choices">${q.choices.map((c, k) => `<button class="quiz-choice" data-k="${k}">${esc(c)}</button>`).join('')}</div>
       <div id="qz-fb"></div></div>`;
@@ -66,9 +67,15 @@ SCREENS.quiz = (el, params) => {
       done = true;
       const k = +b.dataset.k, ok = k === q.a;
       const ms = Math.min(120000, Date.now() - t0);
-      Quiz.record(S, q, ok, ms);
+      if (!q.retry) {
+        Quiz.record(S, q, ok, ms);
+        stateRef.results.push({ id: q.id, tag: q.tag, ok, ms });
+        if (!ok) qs.push({ ...q, retry: true, why: [] });   // まちがえた問題は、この回の最後にもう一度出す
+      } else {
+        stateRef.retried = (stateRef.retried || 0) + 1;
+        if (ok) stateRef.retryOk = (stateRef.retryOk || 0) + 1;
+      }
       saveQuiet();
-      stateRef.results.push({ id: q.id, tag: q.tag, ok, ms });
       $$('.quiz-choice', el).forEach(x => { x.disabled = true; if (+x.dataset.k === q.a) x.classList.add('right'); });
       if (!ok) b.classList.add('wrong');
       ok ? Sound.coin() : Sound.tap();
@@ -95,7 +102,8 @@ SCREENS.quiz = (el, params) => {
       <div class="card quiz-result"><div class="quiz-score"><b>${rw.okN}</b> / ${results.length}</div>
         <p>${rw.okN === results.length ? 'ぜんぶ正解！すばらしい！' : rw.okN >= results.length / 2 ? 'いい調子！' : 'まちがえたところが、のびしろだよ'}</p>
         ${rw.xp ? `<p class="rw-big">経験値 +${rw.xp}</p>` : rw.paid ? '' : `<p class="small muted">今日のごほうびはもういっぱい。でも記録は育っているよ！</p>`}
-        ${wrongTags.length ? `<p class="small">次はここを多めに出すね：<b>${wrongTags.map(esc).join('・')}</b></p>` : ''}</div>
+        ${stateRef.retried ? `<p class="small">🔄 やり直し：${stateRef.retryOk || 0} / ${stateRef.retried} 問できた！</p>` : ''}
+        ${wrongTags.length ? `<p class="small">まちがえた問題は、明日・3日後・1週間後にもう一度出すよ。<br>次はここを多めに出すね：<b>${wrongTags.map(esc).join('・')}</b></p>` : ''}</div>
       <button class="btn big gold" id="qz-again">もう1セット</button>
       <button class="btn wide" id="qz-home">ホームへ</button></div>`;
     $('#qz-again').onclick = () => { Sound.tap(); go('quiz', { subject }); };

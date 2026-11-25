@@ -337,7 +337,7 @@ function finishSession(subject, minutes, goal, goalMet, course = null, topic = n
 
   S.active = null;
   save();
-  return { subject, minutes, goal, goalMet, course, xp, stars, prio, cexp, match, partner, xpBefore, charBefore, battle, events };
+  return { subject, minutes, goal, goalMet, course, topic, xp, stars, prio, cexp, match, partner, xpBefore, charBefore, battle, events };
 }
 function starsFor(minutes, goalMet, subject) {
   const base = minutes + (goalMet ? 5 : 0);
@@ -595,6 +595,24 @@ function morningList() {
   list.push({ id: 'am-both', label: '📚 漢字も計算も朝にやった！いいことある', reward: MORNING_BOTH, cur: list.filter(m => m.done).length, max: list.length,
     done: both, claimed: S.daily.claimed.includes('am-both'), bonus: true });
   return list;
+}
+// まだ朝にやっていない種目（漢字→計算の順）。なければ null
+function morningNext() {
+  return MORNING_TOPICS.find(m => !morningList().find(x => x.id === 'am-' + m.id).done) || null;
+}
+function morningNow() { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= MORNING_START_H && h < MORNING_END_H; }
+function morningLeftMin() { const d = new Date(); return Math.max(0, Math.round(MORNING_END_H * 60 - (d.getHours() * 60 + d.getMinutes()))); }
+// 漢字も計算も朝のうちに終えた日が、きょうまで何日続いているか（きょうがまだなら昨日まで）
+function morningStreak() {
+  const ok = new Set();
+  const byDay = {};
+  S.sessions.forEach(s => { if (s.topic && s.review !== 'ng' && isMorningSession(s)) { const o = byDay[s.date] || (byDay[s.date] = {}); o[s.topic] = (o[s.topic] || 0) + sessionMin(s); } });
+  for (const [d, o] of Object.entries(byDay)) if (MORNING_TOPICS.every(m => (o[m.id] || 0) >= MORNING_MIN)) ok.add(d);
+  const day = new Date(); let n = 0;
+  const key = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  if (!ok.has(key(day))) day.setDate(day.getDate() - 1);
+  while (ok.has(key(day))) { n++; day.setDate(day.getDate() - 1); }
+  return n;
 }
 function claimMorning(id) {
   const m = morningList().find(x => x.id === id);

@@ -481,8 +481,12 @@ function morningHtml() {
       : m.done ? `<button class="btn mini gold wiggle" data-mclaim="${m.id}">受け取る</button>` : `<span class="rw">${rw}</span>`;
     return `<div class="mission ${m.done ? 'done' : ''} ${m.bonus ? 'bonus' : ''}"><div class="m-text">${m.label}<div class="bar"><i style="width:${pct(m.cur, m.max)}"></i></div></div>${action}</div>`;
   }).join('');
-  return `<div class="card" id="morning"><h3>📚 朝勉強（${MORNING_END_H}時まで）いいことある</h3>${rows}
-    <p class="small muted">勉強スタートで「国語→漢字」「算数→計算」を選んでやろう。${MORNING_MIN}分でOK！</p></div>`;
+  const nx = morningNext(), streak = morningStreak();
+  const goHtml = nx && morningNow() ? `<button class="btn gold wide" id="am-start">▶ 朝ルーチン：${nx.icon} ${nx.name}を${MORNING_MIN}分</button>
+    <p class="small muted">${MORNING_END_H}時まであと ${fmtMin(morningLeftMin())}。学校に行く前に終わらせよう！</p>`
+    : nx ? `<p class="small muted">${MORNING_END_H}時までに「国語→漢字」「算数→計算」を${MORNING_MIN}分ずつ。明日の朝にやろう！</p>`
+    : '<p class="small">🎉 今日の朝ルーチン完了！いい1日になるぞ！</p>';
+  return `<div class="card" id="morning"><h3>📚 朝勉強（${MORNING_END_H}時まで）いいことある${streak ? ` <span class="tag">🔥${streak}日連続</span>` : ''}</h3>${rows}${goHtml}</div>`;
 }
 function missionsHtml() {
   return missionList().map(m => {
@@ -531,6 +535,7 @@ SCREENS.home = el => {
     showingNews = true; await runQueuedEvents(); showingNews = false; render();
   }, 300);
   const bindMorning = () => $('#morning').onclick = e => {
+    if (e.target.closest('#am-start')) { const nx = morningNext(); if (nx) { Sound.coin(); startActive(nx.subject, MORNING_MIN, nx.id); go('timer'); } return; }
     const b = e.target.closest('[data-mclaim]');
     if (!b) return;
     const rw = claimMorning(b.dataset.mclaim);
@@ -639,7 +644,7 @@ SCREENS.timer = el => {
   const update = () => {
     if (!S.active) return;
     const sec = activeElapsedSec();
-    const min = Math.min(Math.floor(sec / 60), MAX_SESSION_MIN);
+    const min = Math.min(Math.ceil(sec / 60), MAX_SESSION_MIN);
     const goalSec = a.goal * 60;
     const met = sec >= goalSec;
     const paused = !!a.pausedAt;
@@ -696,9 +701,9 @@ async function finishFlow(skipConfirm) {
   const a = S.active;
   if (!a) return;
   const sec = activeElapsedSec();
-  const min = Math.min(Math.floor(sec / 60), MAX_SESSION_MIN);
-  if (min < 1) {
-    const v = await modal(`<div class="m-emo">${icon('hourglass')}</div><h2>まだ1分たっていません</h2><p>1分以上勉強すると記録できます</p>
+  const min = Math.min(Math.ceil(sec / 60), MAX_SESSION_MIN);
+  if (sec < 10) {
+    const v = await modal(`<div class="m-emo">${icon('hourglass')}</div><h2>まだ始めたばかりです</h2><p>少し勉強すると記録できます（1分に満たない分は切り上げ）</p>
       <div class="m-btns"><button class="btn ghost" data-v="quit">やめる</button><button class="btn gold" data-v="cont">続ける</button></div>`);
     if (v === 'quit') { cancelActive(); go('home'); }
     return;
@@ -827,6 +832,12 @@ SCREENS.result = async (el, r) => {
     next.disabled = true;
     Sound.tap();
     await runEvents(r.events);
+    const nx = r.topic && morningNow() ? morningNext() : null;
+    if (nx) {
+      const v = await modal(`<div class="m-emo">${nx.icon}</div><h2>つぎは ${nx.name}！</h2><p>${MORNING_END_H}時まであと ${fmtMin(morningLeftMin())}。このまま${MORNING_MIN}分やろう！</p>
+        <div class="m-btns"><button class="btn ghost" data-v="no">あとで</button><button class="btn gold" data-v="go">やる！</button></div>`);
+      if (v === 'go') { startActive(nx.subject, MORNING_MIN, nx.id); go('timer'); return; }
+    }
     go('home');
   };
 };
